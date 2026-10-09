@@ -28,6 +28,11 @@ inputs:
     required: false
     type: boolean
     default: false
+  ksu_commit:
+    description: 'Align the kernel-side KSU version source with the latest officially uploaded manager build: BakaSU checks KernelSU out at this commit, SukiSU rewrites its builtin Makefile REPO_BRANCH to it (empty = follow the passed branch/HEAD)'
+    required: false
+    type: string
+    default: ''
   custom_version:
     description: 'Custom kernel version suffix for LOCALVERSION (leading "x.y.z" kernel version prefix is stripped automatically, e.g. "6.6.118-mykernel" becomes "-mykernel"; empty = -<android>-<uname>)'
     required: false
@@ -1035,6 +1040,30 @@ runs:
         curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s "$KSU_INPUT"
         git submodule update --init --recursive || true
 
+        # 内核侧（builtin 分支）KSU 版本来源：Makefile 以 REPO_BRANCH 指向分支的提交数
+        # 计算 KSU_VERSION = 40000 + 提交数 - 2815（优先 GitHub API，回退本地 rev-list）。
+        # 将 REPO_BRANCH 改写为官方最新上传 Manager 构建的提交，
+        # 保证内核 KSU 版本与拉取的管理器安装包严格一致
+        KSU_COMMIT="${{ inputs.ksu_commit }}"
+        if [ -n "$KSU_COMMIT" ]; then
+          if ! git -C KernelSU fetch origin "$KSU_COMMIT" 2>/dev/null; then
+            echo "官方构建提交 $KSU_COMMIT 已存在于本地克隆，跳过 fetch"
+          fi
+          if ! git -C KernelSU cat-file -e "$KSU_COMMIT^{commit}" 2>/dev/null; then
+            echo "::error::官方构建提交 $KSU_COMMIT 不在 KernelSU 仓库中，无法对齐版本来源"
+            exit 1
+          fi
+          if ! sed -i -E "s|^(REPO_BRANCH[[:space:]]*[:?+]?=)[[:space:]]*main[[:space:]]*\$|\1 $KSU_COMMIT|" KernelSU/kernel/Makefile; then
+            echo "::error::改写 KernelSU/kernel/Makefile 的 REPO_BRANCH 失败，无法对齐管理器版本"
+            exit 1
+          fi
+          if ! grep -qE "^REPO_BRANCH[[:space:]]*[:?+]?=[[:space:]]*$KSU_COMMIT[[:space:]]*\$" KernelSU/kernel/Makefile; then
+            echo "::error::未能在 KernelSU/kernel/Makefile 中对齐 REPO_BRANCH（上游 Makefile 结构可能已变化），无法对齐管理器版本"
+            exit 1
+          fi
+          echo "SukiSU 内核侧版本来源已对齐官方上传构建提交 $KSU_COMMIT (KSU 版本 $((40000 + $(git -C KernelSU rev-list --count "$KSU_COMMIT") - 2815)))"
+        fi
+
         # SukiSU 版本名默认带 @分支名 后缀，改写为品牌标识
         if [ -f "$GITHUB_WORKSPACE/scripts/ksu_post_setup.sh" ]; then
           bash "$GITHUB_WORKSPACE/scripts/ksu_post_setup.sh" "$KSU_FOLDER" sukisu
@@ -1042,16 +1071,21 @@ runs:
         fi
         cd KernelSU/kernel
 
-        # SukiSU Kbuild 自动计算版本 (40000 + upstream main 提交数 - 2815)，无需 sed
+        # SukiSU Kbuild 自动计算版本 (40000 + REPO_BRANCH 指向分支的提交数 - 2815)
         KSU_COMMIT_SHA=$(git rev-parse HEAD)
         echo "KSU_COMMIT_SHA=$KSU_COMMIT_SHA" >> $GITHUB_ENV
-        
-        # 计算 KSUVER 用于 ZIP 命名（与 Kbuild 同源：GitHub API main 分支提交数）
-        COMMITS=$(curl -sI -H "Authorization: Bearer ${{ inputs.github_token }}" \
-          "https://api.github.com/repos/SukiSU-Ultra/SukiSU-Ultra/commits?sha=main&per_page=1" \
-          | grep -i '^link:' | sed -n 's/.*page=\([0-9]*\)>; rel="last".*/\1/p' || true)
-        if [ -z "$COMMITS" ]; then
-          COMMITS=$(git rev-list --count HEAD 2>/dev/null || echo "0")
+
+        # 计算 KSUVER 用于 ZIP 命名（与 Kbuild 同源：已对齐时用官方构建提交的提交数，
+        # 否则回退 GitHub API main 分支提交数）
+        if [ -n "${KSU_COMMIT:-}" ]; then
+          COMMITS=$(git rev-list --count "$KSU_COMMIT")
+        else
+          COMMITS=$(curl -sI -H "Authorization: Bearer ${{ inputs.github_token }}" \
+            "https://api.github.com/repos/SukiSU-Ultra/SukiSU-Ultra/commits?sha=main&per_page=1" \
+            | grep -i '^link:' | sed -n 's/.*page=\([0-9]*\)>; rel="last".*/\1/p' || true)
+          if [ -z "$COMMITS" ]; then
+            COMMITS=$(git rev-list --count HEAD 2>/dev/null || echo "0")
+          fi
         fi
         KSU_VERSION=$(expr 40000 + ${COMMITS:-0} - 2815)
         
@@ -1084,6 +1118,22 @@ runs:
         fi
         curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash -s "$KSU_INPUT"
         git submodule update --init --recursive || true
+
+        # 内核侧 KernelSU 检出到官方最新上传 Manager 构建的同一提交
+        #（Kbuild 以 30700 + git 提交数 计算版本，与官方管理器 versionCode 同源同值），
+        # 保证内核 KSU 版本与拉取的管理器安装包严格一致
+        KSU_COMMIT="${{ inputs.ksu_commit }}"
+        if [ -n "$KSU_COMMIT" ]; then
+          if ! git -C KernelSU checkout --detach "$KSU_COMMIT" 2>/dev/null; then
+            git -C KernelSU fetch origin "$KSU_COMMIT"
+            git -C KernelSU checkout --detach "$KSU_COMMIT"
+          fi
+          if [ "$(git -C KernelSU rev-parse HEAD)" != "$KSU_COMMIT" ]; then
+            echo "::error::KernelSU 检出官方构建提交 $KSU_COMMIT 失败，无法对齐管理器版本"
+            exit 1
+          fi
+          echo "KernelSU 已检出到官方上传构建提交 $KSU_COMMIT"
+        fi
 
         # BakaSU 的 REPO_NAME 决定版本名品牌后缀，改写为品牌标识
         if [ -f "$GITHUB_WORKSPACE/scripts/ksu_post_setup.sh" ]; then

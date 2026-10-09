@@ -569,7 +569,7 @@ jobs:
 
   build:
     name: build (${{ matrix.model_display }}, ${{ matrix.soc }}, ${{ matrix.branch }}, ${{ matrix.manifest }}, ${{ matrix.android_version }}, ${{ matrix.kernel_version }}, ${{ matrix.os_version }}, ${{ matrix.ksu_type }})
-    needs: [set-op-model, mirror_toolchain, prepare_ccache]
+    needs: [set-op-model, mirror_toolchain, prepare_ccache, get-manager]
     if: |
       !cancelled() &&
       needs.set-op-model.result == 'success' &&
@@ -685,6 +685,8 @@ jobs:
           ksu_branch_or_hash: ${{ matrix.ksu_resolved_hash }}
           use_kpm: ${{ inputs.use_kpm }}
           use_rekernel: ${{ inputs.use_rekernel }}
+          # BakaSU：内核侧检出到官方最新上传 Manager 构建的同一提交（空=跟随 ksu_branch_or_hash）
+          ksu_commit: ${{ needs.get-manager.outputs.ksuCommit }}
           # SUSFS 不传解析的 commit SHA：action 会用默认 gki-androidXX-Y.Y 分支
           # （分支头=最新），命中 toolchain-cache 的 susfs-<branch>.tar.gz 归档；
           # 传 SHA 会使缓存 URL 变成 susfs-<40位SHA>.tar.gz 而永远 404
@@ -911,6 +913,23 @@ jobs:
             SukiSU) KSU_REPO_URL="https://github.com/SukiSU-Ultra/SukiSU-Ultra" ;;
             *)      KSU_REPO_URL="https://github.com/Baka-SU/BakaSU" ;;
           esac
+
+          # 内核侧已对齐官方最新上传构建提交时，展示该提交而非分支
+          # （BakaSU：内核侧直接检出该提交；SukiSU：builtin 检出的版本来源改写为该提交）
+          RK_KSU_COMMIT="${{ needs.get-manager.outputs.ksuCommit }}"
+          if [[ "$RK_KSU_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            ksu_display="${RK_KSU_COMMIT:0:7}"
+            case "$ksu_type" in
+              SukiSU)
+                KSU_REPO_URL="https://github.com/SukiSU-Ultra/SukiSU-Ultra/commit/$RK_KSU_COMMIT"
+                ksu_ref="builtin @ ${RK_KSU_COMMIT:0:8}"
+                ;;
+              *)
+                KSU_REPO_URL="https://github.com/Baka-SU/BakaSU/commit/$RK_KSU_COMMIT"
+                ksu_ref="main @ ${RK_KSU_COMMIT:0:8}"
+                ;;
+            esac
+          fi
 
           # Build scope display: android12-5.10 -> Android 12 / 5.10
           build_scope=""
