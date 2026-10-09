@@ -47,6 +47,11 @@ on:
           - 'disabled (关闭)'
           - 'enabled (开启)'
           - 'patched (开启并修补)'
+      use_rekernel:
+        description: '启用 Re-Kernel 驱动（默认关闭）'
+        required: false
+        type: boolean
+        default: false
       enable_droidspaces_ntsync:
         description: '启用 Droidspaces 容器 & NTSync（默认关闭）'
         required: false
@@ -679,6 +684,7 @@ jobs:
           ksu_type: ${{ matrix.ksu_type }}
           ksu_branch_or_hash: ${{ matrix.ksu_resolved_hash }}
           use_kpm: ${{ inputs.use_kpm }}
+          use_rekernel: ${{ inputs.use_rekernel }}
           # SUSFS 不传解析的 commit SHA：action 会用默认 gki-androidXX-Y.Y 分支
           # （分支头=最新），命中 toolchain-cache 的 susfs-<branch>.tar.gz 归档；
           # 传 SHA 会使缓存 URL 变成 susfs-<40位SHA>.tar.gz 而永远 404
@@ -977,6 +983,7 @@ jobs:
           | 挂载方式 | Magic Mount |
           | LTO | thin |
           | KPM | $KPM_STATUS |
+          | Re-Kernel 驱动 | ${{ inputs.use_rekernel && '开启' || '未开启' }} |
           | Droidspaces & NTSync | ${{ inputs.enable_droidspaces_ntsync && '开启' || '未开启' }} |
           | 优化级别 | $OPTIMIZE_LEVEL |
           | 功能 | $COMMON_FEATURES |

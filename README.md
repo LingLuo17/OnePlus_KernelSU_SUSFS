@@ -38,6 +38,7 @@ This repository builds **OnePlus (Oppo/Realme) device kernels** with GitHub Acti
 | 🔐 KernelSU Variants | Supports SukiSU / BakaSU variants, selectable at build time |
 | 🙈 SUSFS | Kernel-level hiding working with KSU to complete environment spoofing |
 | ⚡ KPM | SukiSU-only Kernel Patch Module: `CONFIG_KPM` injection and/or build-time image patching with kptools |
+| 🔔 Re-Kernel | Optional Re-Kernel driver integration |
 | 🛡️ BBG (Baseband Guard) | LSM-based protection for critical device partitions; abl/efisp whitelist for exploit devices |
 | 🛠️ HMBIRD SCX | Scheduler extensions for SM8750/MT6991 devices |
 | 🌐 Network Enhancement | BBRv1 / BBRv3 congestion control, CAKE & PIE qdisc, IPSet + IPv6 NAT |
@@ -66,6 +67,7 @@ This repository builds **OnePlus (Oppo/Realme) device kernels** with GitHub Acti
 - [SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra) / [BakaSU](https://github.com/Baka-SU/BakaSU)
 - [SUSFS](https://gitlab.com/simonpunk/susfs4ksu)
 - [Baseband Guard](https://github.com/vc-teahouse/Baseband-guard)
+- [Re-Kernel](https://github.com/Sakion-Team/Re-Kernel)
 - [Droidspaces](https://github.com/ravindu644/Droidspaces-OSS)
 
 <div align="center">
@@ -127,6 +129,7 @@ This repository builds **OnePlus (Oppo/Realme) device kernels** with GitHub Acti
 | 🔐 KernelSU 变体 | 支持 SukiSU / BakaSU 变体，构建时按需选择 |
 | 🙈 SUSFS | 内核级隐藏，配合 KSU 完成环境伪装 |
 | ⚡ KPM | 仅 SukiSU 支持：注入 `CONFIG_KPM` 和/或构建期使用 kptools 修补内核镜像 |
+| 🔔 Re-Kernel | 可选集成 Re-Kernel 驱动 |
 | 🛡️ BBG 基带保护 | 基于 LSM 保护关键设备分区；efisp 漏洞设备可加入 abl/efisp 白名单 |
 | 🛠️ HMBIRD SCX | 适用于 SM8750/MT6991 设备的调度扩展 |
 | 🌐 网络增强 | BBRv1 / BBRv3 拥塞控制、CAKE 与 PIE qdisc、IPSet + IPv6 NAT |
@@ -155,6 +158,7 @@ This repository builds **OnePlus (Oppo/Realme) device kernels** with GitHub Acti
 - [SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra) / [BakaSU](https://github.com/Baka-SU/BakaSU)
 - [SUSFS](https://gitlab.com/simonpunk/susfs4ksu)
 - [Baseband Guard](https://github.com/vc-teahouse/Baseband-guard)
+- [Re-Kernel](https://github.com/Sakion-Team/Re-Kernel)
 - [Droidspaces](https://github.com/ravindu644/Droidspaces-OSS)
 
 <div align="center">

@@ -23,6 +23,11 @@ inputs:
     required: false
     type: string
     default: 'disabled (关闭)'
+  use_rekernel:
+    description: 'Integrate the Re-Kernel driver in-tree (CONFIG_REKERNEL, netlink freeze/kill notifier)'
+    required: false
+    type: boolean
+    default: false
   custom_version:
     description: 'Custom kernel version suffix for LOCALVERSION (leading "x.y.z" kernel version prefix is stripped automatically, e.g. "6.6.118-mykernel" becomes "-mykernel"; empty = -<android>-<uname>)'
     required: false
@@ -1750,6 +1755,69 @@ runs:
         echo "✅ Droidspaces Support applied"
         echo "::endgroup::"
 
+    - name: Add Re-Kernel
+      if: ${{ inputs.use_rekernel }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "::group::Add Re-Kernel"
+        DEFCONFIG="$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig"
+        REKERNEL_DRIVER_DIR="$COMMON_KERNEL_FOLDER/drivers/rekernel"
+        TMP_REKERNEL="$RUNNER_TEMP/rekernel"
+        rm -rf "$TMP_REKERNEL"
+
+        rollback_rekernel() {
+          rm -rf "$REKERNEL_DRIVER_DIR"
+          sed -i '\|source "drivers/rekernel/Kconfig"|d' "$COMMON_KERNEL_FOLDER/drivers/Kconfig" 2>/dev/null || true
+          sed -i '\|obj-$(CONFIG_REKERNEL) += rekernel/|d' "$COMMON_KERNEL_FOLDER/drivers/Makefile" 2>/dev/null || true
+          sed -i '/^CONFIG_REKERNEL=y$/d; /^CONFIG_REKERNEL_NETWORK=y$/d' "$DEFCONFIG" 2>/dev/null || true
+        }
+
+        if ( set -euo pipefail
+          echo "Integrating Re-Kernel..."
+          git clone --depth 1 https://github.com/Sakion-Team/Re-Kernel.git "$TMP_REKERNEL"
+
+          # Vendor the split upstream driver source into the kernel tree
+          rm -rf "$REKERNEL_DRIVER_DIR"
+          mkdir -p "$REKERNEL_DRIVER_DIR"
+          cp -a "$TMP_REKERNEL/LKM-Source/." "$REKERNEL_DRIVER_DIR/"
+
+          # Convert the upstream out-of-tree module into an in-tree built-in driver
+          REKERNEL_MAKEFILE="$REKERNEL_DRIVER_DIR/Makefile"
+          sed -i 's/^obj-m := rekernel\.o$/obj-$(CONFIG_REKERNEL) += rekernel.o/' "$REKERNEL_MAKEFILE"
+          grep -qF 'ccflags-$(CONFIG_REKERNEL_LEGACY_NETLINK) += -DLEGACY_NETLINK' "$REKERNEL_MAKEFILE" || \
+            echo 'ccflags-$(CONFIG_REKERNEL_LEGACY_NETLINK) += -DLEGACY_NETLINK' >> "$REKERNEL_MAKEFILE"
+          sed -i '/^[[:space:]]*depends on MODULES[[:space:]]*$/d' "$REKERNEL_DRIVER_DIR/Kconfig"
+
+          # Mount into the drivers tree (idempotent)
+          if ! grep -qF 'source "drivers/rekernel/Kconfig"' "$COMMON_KERNEL_FOLDER/drivers/Kconfig"; then
+            sed -i '/^endmenu$/i source "drivers/rekernel/Kconfig"' "$COMMON_KERNEL_FOLDER/drivers/Kconfig"
+          fi
+          if ! grep -qF 'obj-$(CONFIG_REKERNEL) += rekernel/' "$COMMON_KERNEL_FOLDER/drivers/Makefile"; then
+            echo 'obj-$(CONFIG_REKERNEL) += rekernel/' >> "$COMMON_KERNEL_FOLDER/drivers/Makefile"
+          fi
+
+          # Fix include paths for in-tree compilation
+          sed -i 's|#include <../android/binder_internal.h>|#include "../android/binder_internal.h"|g' "$REKERNEL_DRIVER_DIR/rekernel_binder.c"
+          # 5.10 binder_internal.h needs DEFINE_SHOW_ATTRIBUTE definitions from seq_file.h
+          grep -qF '#include <linux/seq_file.h>' "$REKERNEL_DRIVER_DIR/rekernel_binder.c" || \
+            sed -i '/#include <linux\/kprobes.h>/a #include <linux/seq_file.h>' "$REKERNEL_DRIVER_DIR/rekernel_binder.c"
+
+          # Enable in defconfig (idempotent)
+          grep -q '^CONFIG_REKERNEL=y$' "$DEFCONFIG" || echo "CONFIG_REKERNEL=y" >> "$DEFCONFIG"
+          grep -q '^CONFIG_REKERNEL_NETWORK=y$' "$DEFCONFIG" || echo "CONFIG_REKERNEL_NETWORK=y" >> "$DEFCONFIG"
+        ); then
+          echo "✅ Re-Kernel driver integrated (CONFIG_REKERNEL=y, CONFIG_REKERNEL_NETWORK=y)"
+          echo "::endgroup::"
+          exit 0
+        fi
+
+        # Integration failed: roll back the half-applied state so leftover
+        # references cannot break the kernel build
+        rollback_rekernel
+        echo "::error::Re-Kernel integration failed"
+        exit 1
+
     - name: Add Build based configs
       shell: bash
       run: |
@@ -2428,6 +2496,7 @@ runs:
           echo "Unicode Fix: ${{ env.OP_UNICODE }}"
           echo "NTSync: ${{ env.OP_NTSYNC }}"
           echo "Droidspaces: ${{ env.OP_DS }}"
+          echo "Re-Kernel: ${{ inputs.use_rekernel }}"
           echo ""
           echo "Image SHA256: ${{ steps.collect_stats.outputs.image_sha256 }}"
           echo "AnyKernel3 ZIP SHA256: ${{ steps.create_zip.outputs.zip_sha256 }}"
