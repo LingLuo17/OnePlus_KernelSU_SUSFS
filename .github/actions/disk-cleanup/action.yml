@@ -1,4 +1,5 @@
 name: 'Disk Cleanup'
+description: 'Emergency disk cleanup for self-hosted/large runners'
 
 inputs:
   debug:

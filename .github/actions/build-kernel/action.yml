@@ -1,4 +1,5 @@
-name: 'Build OnePlus Kernel with KernelSU Next'
+name: 'Build OnePlus Kernel with SukiSU/BakaSU'
+description: 'Build OnePlus GKI kernel with SukiSU/BakaSU, SUSFS and optional KPM support'
 
 inputs:
   op_config_json:
@@ -10,20 +11,30 @@ inputs:
     required: true
     type: choice
     options:
-      - KSUN
-      - KSU
+      - SukiSU
+      - BakaSU
   ksu_branch_or_hash:
-    description: 'KSU branch or commit hash (empty = auto-detect by ksu_type)'
+    description: 'KSU branch or commit hash (empty = auto-detect by ksu_type: SukiSU→builtin, BakaSU→main)'
     required: false
     type: string
     default: ""
+  use_kpm:
+    description: 'KPM feature (SukiSU only): disabled | enabled (CONFIG_KPM) | patched (patch Image with kptools)'
+    required: false
+    type: string
+    default: 'disabled (关闭)'
+  custom_version:
+    description: 'Custom kernel version suffix for LOCALVERSION (leading "x.y.z" kernel version prefix is stripped automatically, e.g. "6.6.118-mykernel" becomes "-mykernel"; empty = -<android>-<uname>)'
+    required: false
+    type: string
+    default: ''
   susfs_commit_hash_or_branch:
     description: 'SUSFS branch or commit hash (empty = auto-detect by kernel version)'
     required: false
     type: string
     default: ""
   build_timestamp:
-    description: 'Custom kernel build timestamp shown in uname -a (e.g. "Tue Feb 10 10:01:02 UTC 2026"). Leave empty to use the current build time.'
+    description: 'Custom kernel build timestamp shown in uname -a. Format: Wkd Mon DD HH:MM:SS UTC YYYY, e.g. "Tue Dec  1 08:10:00 UTC 2026"; weekday must match the date. Leave empty to use the current build time (UTC+8).'
     required: false
     type: string
     default: ''
@@ -42,6 +53,11 @@ inputs:
     required: false
     type: boolean
     default: false
+  cache_stagger:
+    description: 'Randomly delay cache upload to avoid contention in large matrices'
+    required: false
+    type: boolean
+    default: true
   github_token:
     description: 'GitHub Token'
     required: true
@@ -360,7 +376,6 @@ runs:
         KERNEL_PATCHES_DIR="$GITHUB_WORKSPACE/kernel_patches"
         SUSFS_DIR="$GITHUB_WORKSPACE/susfs4ksu"
         KSU_DIR="$KERNEL_PLATFORM_DIR/KernelSU"
-        KSUN_DIR="$KERNEL_PLATFORM_DIR/KernelSU-Next"
         mkdir -p "$ARTIFACTS_DIR"
         mkdir -p "$DEBUG_ARTIFACTS_DIR"
         
@@ -375,9 +390,77 @@ runs:
         echo "KERNEL_PATCHES_FOLDER=$KERNEL_PATCHES_DIR" >> "$GITHUB_ENV"
         echo "SUSFS_FOLDER=$SUSFS_DIR" >> "$GITHUB_ENV"
         echo "KSU_FOLDER=$KSU_DIR" >> "$GITHUB_ENV"
-        echo "KSUN_FOLDER=$KSUN_DIR" >> "$GITHUB_ENV"
         
-        DEBUG_ZIP_NAME="debug_${OP_MODEL}_${OP_OS_VERSION}.zip"
+        # Official device display name (shared by zip, artifacts, cache key)
+        if [[ "$OP_MODEL" =~ ^(.+)-([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+          dev="${BASH_REMATCH[1]}"; ver="${BASH_REMATCH[2]}"
+        else
+          dev="$OP_MODEL"; ver=""
+        fi
+          case "$dev" in
+            OP-ACE) flat="OnePlus-Ace" ;;
+            OP-ACE-2) flat="OnePlus-Ace2" ;;
+            OP-ACE-2-PRO) flat="OnePlus-Ace2-Pro" ;;
+            OP-ACE-2V) flat="OnePlus-Ace2V" ;;
+            OP-ACE-3) flat="OnePlus-Ace3" ;;
+            OP-ACE-3-PRO) flat="OnePlus-Ace3-Pro" ;;
+            OP-ACE-3V) flat="OnePlus-Ace3V" ;;
+            OP-ACE-5) flat="OnePlus-Ace5" ;;
+            OP-ACE-5-PRO) flat="OnePlus-Ace5-Pro" ;;
+            OP-ACE-5-RACE) flat="OnePlus-Ace5-RACE" ;;
+            OP-ACE-5-ULTRA) flat="OnePlus-Ace5-Ultra" ;;
+            OP-ACE-6) flat="OnePlus-Ace6" ;;
+            OP-ACE-6-ULTRA) flat="OnePlus-Ace6-Ultra" ;;
+            OP-ACE-6T) flat="OnePlus-Ace6T" ;;
+            OP-ACE-RACE) flat="OnePlus-Ace-RACE" ;;
+            OP-N6) flat="OnePlus-N6" ;;
+            OP-NORD-3) flat="OnePlus-Nord3" ;;
+            OP-NORD-4) flat="OnePlus-Nord4" ;;
+            OP-NORD-4-CE) flat="OnePlus-Nord4-CE" ;;
+            OP-NORD-5) flat="OnePlus-Nord5" ;;
+            OP-NORD-6) flat="OnePlus-Nord6" ;;
+            OP-NORD-CE-5) flat="OnePlus-Nord-CE5" ;;
+            OP-NORD-CE4-LITE) flat="OnePlus-Nord-CE4Lite" ;;
+            OP-NORD-CE6-LITE) flat="OnePlus-Nord-CE6Lite" ;;
+            OP-NORD-N30-SE) flat="OnePlus-Nord-N30-SE" ;;
+            OP-OPEN) flat="OnePlus-Open" ;;
+            OP-PAD-2-MT6991) flat="OnePlus-Pad2-MT6991" ;;
+            OP-PAD-2-PRO) flat="OnePlus-Pad2-Pro" ;;
+            OP-PAD-2-SM8650) flat="OnePlus-Pad2-SM8650" ;;
+            OP-PAD-3-MT6897) flat="OnePlus-Pad3-MT6897" ;;
+            OP-PAD-3-PRO) flat="OnePlus-Pad3-Pro" ;;
+            OP-PAD-3-SM8750) flat="OnePlus-Pad3-SM8750" ;;
+            OP-PAD-4) flat="OnePlus-Pad4" ;;
+            OP-PAD-GO-2) flat="OnePlus-Pad-GO2" ;;
+            OP-PAD-LITE) flat="OnePlus-Pad-Lite" ;;
+            OP-PAD-MT6983) flat="OnePlus-Pad-MT6983" ;;
+            OP-PAD-PRO) flat="OnePlus-Pad-Pro" ;;
+            OP-TURBO-6) flat="OnePlus-Turbo6" ;;
+            OP-TURBO-6V) flat="OnePlus-Turbo6V" ;;
+            OP-TURBO-6X) flat="OnePlus-Turbo6X" ;;
+            OP10pro) flat="OnePlus-10Pro" ;;
+            OP10r) flat="OnePlus-10R" ;;
+            OP10t) flat="OnePlus-10T" ;;
+            OP11) flat="OnePlus-11" ;;
+            OP11r) flat="OnePlus-11R" ;;
+            OP12) flat="OnePlus-12" ;;
+            OP12r) flat="OnePlus-12R" ;;
+            OP13) flat="OnePlus-13" ;;
+            OP13-CPH) flat="OnePlus-13-CPH" ;;
+            OP13-PJZ) flat="OnePlus-13-PJZ" ;;
+            OP13S) flat="OnePlus-13S" ;;
+            OP13T) flat="OnePlus-13T" ;;
+            OP13r) flat="OnePlus-13R" ;;
+            OP15) flat="OnePlus-15" ;;
+            OP15T) flat="OnePlus-15T" ;;
+            OP15r) flat="OnePlus-15R" ;;
+            *) flat="$dev" ;;
+          esac
+        [ -n "$ver" ] && flat="$flat-$ver"
+        MODEL_FLAT="$flat"
+        echo "MODEL_FLAT=$MODEL_FLAT" >> "$GITHUB_ENV"
+
+        DEBUG_ZIP_NAME="debug_${MODEL_FLAT}_${OP_OS_VERSION}.zip"
         echo "DEBUG_ZIP_NAME=$DEBUG_ZIP_NAME" >> "$GITHUB_ENV"
 
     - name: Set Kernel build-tools to Path
@@ -686,12 +769,12 @@ runs:
       if: ${{ inputs.clean == false || inputs.clean == 'false' }}
       with:
         cache_path: ${{ env.CCACHE_DIR }}
-        cache_key: ${{ inputs.ksu_type }}-v3-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-${{ env.KERNEL_FULL_VER }}-${{ env.CLANG_VERSION_SHORT }}
+        cache_key: ${{ inputs.ksu_type }}-v3-${{ env.MODEL_FLAT }}-${{ env.OP_OS_VERSION }}-${{ env.KERNEL_FULL_VER }}-${{ env.CLANG_VERSION_SHORT }}
         cache_bucket: "ccache-cache"
         debug: ${{ inputs.debug }}
         restore_keys: |
-          ${{ inputs.ksu_type }}-v3-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-${{ env.KERNEL_FULL_VER }}-
-          ${{ inputs.ksu_type }}-v3-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-
+          ${{ inputs.ksu_type }}-v3-${{ env.MODEL_FLAT }}-${{ env.OP_OS_VERSION }}-${{ env.KERNEL_FULL_VER }}-
+          ${{ inputs.ksu_type }}-v3-${{ env.MODEL_FLAT }}-${{ env.OP_OS_VERSION }}-
 
     - name: Check and Prepare Caches
       shell: bash
@@ -855,12 +938,66 @@ runs:
         }
         
         retry_clone "https://github.com/WildKernels/kernel_patches.git" "main" "1"
-        
+
+        # KPM 构建期修补工具 (kptools + 内置 kpimg)，仅 use_kpm=patched 时需要
+        if [[ "${{ inputs.use_kpm }}" == patched* ]]; then
+          retry_clone "https://github.com/ShirkNeko/SukiSU_patch.git" "main" "1"
+          if [ ! -f "$GITHUB_WORKSPACE/SukiSU_patch/kpm/patch_linux" ]; then
+            echo "::error::SukiSU_patch/kpm/patch_linux not found after clone"
+            exit 1
+          fi
+          echo "✅ SukiSU_patch cloned (KPM patch tool ready)"
+        fi
+
         if [ "${{ env.OP_SUSFS }}" = true ]; then
           echo "Using SUSFS branch/commit: $SUSFS_BRANCH"
-          if ! retry_fetch_archive "https://gitlab.com/simonpunk/susfs4ksu.git" "$SUSFS_BRANCH"; then
-            echo "::error::Failed to fetch SUSFS archive after multiple attempts"
-            exit 1
+          # 优先从本仓库 toolchain-cache 下载 SUSFS 归档（mirror 预缓存），
+          # 避免全部矩阵 job 并发请求 GitLab 归档接口被限流；缓存缺失才回退 GitLab
+          # 下载链：aria2c 多连接（快）→ curl 单连接（稳，规避 CDN 对多连接的间歇拒绝）→ GitLab
+          SUSFS_CACHE_URL="https://github.com/${{ github.repository }}/releases/download/toolchain-cache/susfs-${SUSFS_BRANCH}.tar.gz"
+          SUSFS_ARCHIVE="susfs_${SUSFS_BRANCH}.tar.gz"
+          CACHE_OK=false
+          for ATTEMPT in 1 2 3; do
+            if aria2c -x16 -s16 -k1M --retry-wait=5 --max-tries=10 --allow-overwrite=true \
+                 -d "/dev/shm" -o "$SUSFS_ARCHIVE" "$SUSFS_CACHE_URL"; then
+              mkdir -p "$SUSFS_FOLDER"
+              if tar -I "pigz -p $(nproc 2>/dev/null || echo 4) -b 256" -x --record-size=1M \
+                   -f "/dev/shm/$SUSFS_ARCHIVE" -C "$SUSFS_FOLDER" --strip-components=1 --no-same-owner; then
+                echo "✅ SUSFS synced from toolchain-cache (aria2c)"
+                rm -f "/dev/shm/$SUSFS_ARCHIVE"
+                CACHE_OK=true
+                break
+              fi
+            fi
+            echo "⚠️ toolchain-cache aria2c attempt $ATTEMPT/3 failed"
+            rm -f "/dev/shm/$SUSFS_ARCHIVE" "$SUSFS_FOLDER" 2>/dev/null
+            sleep 5
+          done
+          if [ "$CACHE_OK" != "true" ]; then
+            for ATTEMPT in 1 2 3; do
+              echo "🔄 curl single-connection attempt $ATTEMPT/3..."
+              if curl -sL --fail --retry 3 --connect-timeout 30 --max-time 300 \
+                   -o "/dev/shm/$SUSFS_ARCHIVE" "$SUSFS_CACHE_URL"; then
+                mkdir -p "$SUSFS_FOLDER"
+                if tar -I "pigz -p $(nproc 2>/dev/null || echo 4) -b 256" -x --record-size=1M \
+                     -f "/dev/shm/$SUSFS_ARCHIVE" -C "$SUSFS_FOLDER" --strip-components=1 --no-same-owner; then
+                  echo "✅ SUSFS synced from toolchain-cache (curl)"
+                  rm -f "/dev/shm/$SUSFS_ARCHIVE"
+                  CACHE_OK=true
+                  break
+                fi
+              fi
+              echo "⚠️ toolchain-cache curl attempt $ATTEMPT/3 failed"
+              rm -f "/dev/shm/$SUSFS_ARCHIVE" "$SUSFS_FOLDER" 2>/dev/null
+              sleep 5
+            done
+          fi
+          if [ "$CACHE_OK" != "true" ]; then
+            echo "::warning::toolchain-cache SUSFS fetch failed, falling back to GitLab"
+            if ! retry_fetch_archive "https://gitlab.com/simonpunk/susfs4ksu.git" "$SUSFS_BRANCH"; then
+              echo "::error::Failed to fetch SUSFS archive after multiple attempts"
+              exit 1
+            fi
           fi
           echo "SUSFS_COMMIT_SHA=$SUSFS_BRANCH" >> $GITHUB_ENV
         fi
@@ -877,114 +1014,100 @@ runs:
         sed -i 's/protected_modules = \[.*\]/protected_modules = []/' common/modules.bzl || true
         echo "::endgroup::"
 
-    - name: Add KernelSU Next
+    - name: Add SukiSU
       shell: bash
-      if: ${{ inputs.ksu_type == 'KSUN' }}
+      if: ${{ inputs.ksu_type == 'SukiSU' }}
       run: |
         set -euo pipefail
-        echo "::group::Add KernelSU Next"
+        echo "::group::Add SukiSU"
         cd "$KERNEL_PLATFORM_FOLDER"
-        echo "Adding KernelSU Next..."
+        echo "Adding SukiSU..."
         KSU_INPUT="${{ inputs.ksu_branch_or_hash }}"
         if [ -z "$KSU_INPUT" ]; then
-          curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
-        else
-          curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s "$KSU_INPUT"
+          # builtin 分支：内置 SUSFS + KPM 支持
+          KSU_INPUT="builtin"
         fi
-        git submodule update --init --recursive
-        cd KernelSU-Next/kernel
-        
-        COMMITS_COUNT=$(/usr/bin/git rev-list --count HEAD)
-        
-        if [ $COMMITS_COUNT -lt 2684 ]; then
-          BASE_VERSION=10200
-        else
-          BASE_VERSION=30000
+        curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s "$KSU_INPUT"
+        git submodule update --init --recursive || true
+
+        # SukiSU 版本名默认带 @分支名 后缀，改写为品牌标识
+        if [ -f "$GITHUB_WORKSPACE/scripts/ksu_post_setup.sh" ]; then
+          bash "$GITHUB_WORKSPACE/scripts/ksu_post_setup.sh" "$KSU_FOLDER" sukisu
+          echo "✅ SukiSU 版本标识已注入 @LingLuo"
         fi
-        
-        KSU_VERSION=$(expr $COMMITS_COUNT "+" $BASE_VERSION)
-        sed -i "s/DKSU_VERSION=11998/DKSU_VERSION=${KSU_VERSION}/" Makefile
-        
-        if [ -f ksu.c ]; then
-          sed -i 's/#if defined(CONFIG_STACKPROTECTOR) && (defined(CONFIG_ARM64) && !defined(CONFIG_STACKPROTECTOR_PER_TASK))/#if 0/' ksu.c
-        fi
-        
-        if [[ "$KSU_VERSION" -gt 33095 ]] && [[ "${{ env.KERNEL_VER }}" == "6.12" ]]; then
-          sed -i 's|ccflags-y += -I$(KSU_KERNEL_DIR) -I$(KSU_KERNEL_DIR)/include|ccflags-y += -I$(KSU_KERNEL_DIR) -I$(KSU_KERNEL_DIR)/include -I$(KSU_KERNEL_DIR)/include/uapi|' Kbuild
-          sed -i 's|$(src)|$(abspath $(src))|' Kbuild
-          sed -i 's|$(srctree)/$(src)|$(abspath $(srctree)/$(src))|' Kbuild
-        fi
-        
-        if [ "$KSU_VERSION" -lt 12884 ]; then
-          echo "NEED_HOOKS=true" >> $GITHUB_ENV
-        else
-          echo "NEED_HOOKS=false" >> $GITHUB_ENV
-        fi
-        
-        cd ..
+        cd KernelSU/kernel
+
+        # SukiSU Kbuild 自动计算版本 (40000 + upstream main 提交数 - 2815)，无需 sed
         KSU_COMMIT_SHA=$(git rev-parse HEAD)
         echo "KSU_COMMIT_SHA=$KSU_COMMIT_SHA" >> $GITHUB_ENV
         
+        # 计算 KSUVER 用于 ZIP 命名（与 Kbuild 同源：GitHub API main 分支提交数）
+        COMMITS=$(curl -sI -H "Authorization: Bearer ${{ inputs.github_token }}" \
+          "https://api.github.com/repos/SukiSU-Ultra/SukiSU-Ultra/commits?sha=main&per_page=1" \
+          | grep -i '^link:' | sed -n 's/.*page=\([0-9]*\)>; rel="last".*/\1/p' || true)
+        if [ -z "$COMMITS" ]; then
+          COMMITS=$(git rev-list --count HEAD 2>/dev/null || echo "0")
+        fi
+        KSU_VERSION=$(expr 40000 + ${COMMITS:-0} - 2815)
         
-        echo "Add KSUN Configuration Settings"
+        
+        cd ..
+        
+        echo "Add SukiSU Configuration Settings"
         cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF
         CONFIG_KSU=y
-        CONFIG_KSU_KPROBES_HOOK=n
         EOF
         
-        echo "KSUN" >> "${ARTIFACTS_FOLDER}/${OP_MODEL}_${OP_OS_VERSION}.txt"
+        echo "SukiSU" >> "${ARTIFACTS_FOLDER}/${OP_MODEL}_${OP_OS_VERSION}.txt"
         echo "$KSU_VERSION" >> "${ARTIFACTS_FOLDER}/${OP_MODEL}_${OP_OS_VERSION}.txt"
         echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
-        echo "KernelSU Next Version: $KSU_VERSION"
-        echo "✅ KernelSU Next added (commit: ${KSU_COMMIT_SHA:0:8})"
+        echo "SukiSU Version: $KSU_VERSION"
+        echo "✅ SukiSU added (branch/commit: $KSU_INPUT, sha: ${KSU_COMMIT_SHA:0:8})"
         echo "::endgroup::"
 
-    - name: Add KernelSU
+    - name: Add BakaSU
       shell: bash
-      if: ${{ inputs.ksu_type == 'KSU' }}
+      if: ${{ inputs.ksu_type == 'BakaSU' }}
       run: |
         set -euo pipefail
-        echo "::group::Add KernelSU"
+        echo "::group::Add BakaSU"
         cd "$KERNEL_PLATFORM_FOLDER"
-        echo "Adding KernelSU..."
+        echo "Adding BakaSU..."
         KSU_INPUT="${{ inputs.ksu_branch_or_hash }}"
         if [ -z "$KSU_INPUT" ]; then
-          curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
-        else
-          curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s "$KSU_INPUT"
+          KSU_INPUT="main"
         fi
-        git submodule update --init --recursive
+        curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash -s "$KSU_INPUT"
+        git submodule update --init --recursive || true
+
+        # BakaSU 的 REPO_NAME 决定版本名品牌后缀，改写为品牌标识
+        if [ -f "$GITHUB_WORKSPACE/scripts/ksu_post_setup.sh" ]; then
+          bash "$GITHUB_WORKSPACE/scripts/ksu_post_setup.sh" "$KSU_FOLDER" bakasu
+          echo "✅ BakaSU 版本标识已注入 @LingLuo"
+        fi
         cd KernelSU/kernel
-        BASE_VERSION=30000
-        KSU_VERSION=$(expr $(/usr/bin/git rev-list --count HEAD) "+" $BASE_VERSION)
-        sed -i "s/DKSU_VERSION=16/DKSU_VERSION=${KSU_VERSION}/" Makefile
-        
-        if [ -f ksu.c ]; then
-          sed -i 's/#if defined(CONFIG_STACKPROTECTOR) && (defined(CONFIG_ARM64) && !defined(CONFIG_STACKPROTECTOR_PER_TASK))/#if 0/' ksu.c
-        fi
-        
-        if [[ "$KSU_VERSION" -gt 32427 ]] && [[ "${{ env.KERNEL_VER }}" == "6.12" ]]; then
-          sed -i 's|ccflags-y += -I$(KSU_KERNEL_DIR) -I$(KSU_KERNEL_DIR)/include|ccflags-y += -I$(KSU_KERNEL_DIR) -I$(KSU_KERNEL_DIR)/include -I$(KSU_KERNEL_DIR)/include/uapi|' Kbuild
-          sed -i 's|$(src)|$(abspath $(src))|' Kbuild
-          sed -i 's|$(srctree)/$(src)|$(abspath $(srctree)/$(src))|' Kbuild
-        fi
-        
-        echo "NEED_HOOKS=false" >> $GITHUB_ENV
-        
-        cd ..
+
+        # BakaSU Kbuild 以 30000 + 提交数 + 700 自动计算版本，无需 sed
         KSU_COMMIT_SHA=$(git rev-parse HEAD)
         echo "KSU_COMMIT_SHA=$KSU_COMMIT_SHA" >> $GITHUB_ENV
         
-        echo "Add KSU Configuration Settings"
+        COMMITS=$(/usr/bin/git rev-list --count HEAD)
+        KSU_VERSION=$(expr 30000 + $COMMITS + 700)
+        
+        
+        cd ..
+        
+        echo "Add BakaSU Configuration Settings"
         cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF
         CONFIG_KSU=y
+        CONFIG_KSU_FULL_NAME_FORMAT="%TAG_NAME%-%COMMIT_SHA%@%REPO_NAME%"
         EOF
         
-        echo "KSU" >> "${ARTIFACTS_FOLDER}/${OP_MODEL}_${OP_OS_VERSION}.txt"
+        echo "BakaSU" >> "${ARTIFACTS_FOLDER}/${OP_MODEL}_${OP_OS_VERSION}.txt"
         echo "$KSU_VERSION" >> "${ARTIFACTS_FOLDER}/${OP_MODEL}_${OP_OS_VERSION}.txt"
         echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
-        echo "KernelSU Version: $KSU_VERSION"
-        echo "✅ KernelSU added (commit: ${KSU_COMMIT_SHA:0:8})"
+        echo "BakaSU Version: $KSU_VERSION"
+        echo "✅ BakaSU added (branch/commit: $KSU_INPUT, sha: ${KSU_COMMIT_SHA:0:8})"
         echo "::endgroup::"
 
     - name: Apply SUSFS Patches
@@ -1003,116 +1126,9 @@ runs:
         echo "$susfs_version" >> "${ARTIFACTS_FOLDER}/${OP_MODEL}_${OP_OS_VERSION}.txt"
         echo "SusFS Version: $susfs_version"
         
-        # Function to compare semantic versions
-        version_lte() {
-          [ "$(printf '%s\n' "$2" "$1" | sort -V | head -n1)" = "$1" ]
-        }
-        
-        if version_lte "${susfs_version:1}" "1.5.12"; then
-          echo "NEED_HOOKS=true" >> $GITHUB_ENV
-        else
-          echo "NEED_HOOKS=false" >> $GITHUB_ENV
-        fi
-        
-        case "$susfs_version" in
-          "v1.5.8")
-            if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
-              patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
-              patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_apk_sign.c.patch"
-              patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_core_hook.c.patch"
-              patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_selinux.c.patch"
-              patch -p1 --forward --fuzz=3 < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_ksud.c.patch"
-            else
-              cd "$KSU_FOLDER"
-              patch -p1 --forward --fuzz=3 < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
-            fi
-            ;;
-          "v1.5.9"|"v1.5.10"|"v1.5.11"|"v1.5.12")
-            if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
-              cd "$KSUN_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
-              for file in $(find ./kernel -maxdepth 2 -name "*.rej" -printf "%f\n" | cut -d'.' -f1); do
-                echo "Patching file: $file.c with fix_$file.c.patch"
-                patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.c.patch"
-              done
-              patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_kernel_compat.c.patch"
-            else
-              cd "$KSU_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch"
-            fi
-            ;;
-          "v2.0.0")
-            if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
-              cd "$KSUN_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
-              for file in $(find ./kernel -maxdepth 2 -name "*.rej" -exec basename {} .rej \;); do
-                echo "Patching file: $file with fix_$file.patch"
-                patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.patch"
-              done
-              echo "Patching Hook Mode!"
-              patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/overwrite_hook_mode.patch"
-              echo "Patching KSU_TOOLKIT Support for SusFS kernel!"
-              patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/ksu_toolkit.patch"
-              if [ "$KSUVER" -le 33095 ]; then
-                echo "Patching Multi-manager Support for SusFS kernel!"
-                patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/multi_manager.patch"
-              fi
-              if [ "$KSUVER" -ge 33068 ] && [ "$KSUVER" -lt 33070 ]; then
-                echo "Patching Multi-manager sepolicy Support for SusFS kernel!"
-                patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/multi_sepolicy_fix.patch"
-              fi
-            else
-              cd "$KSU_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
-            fi
-            ;;
-          "v2.1.0")
-            if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
-              cd "$KSUN_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
-              for file in $(find ./kernel -maxdepth 2 -name "*.rej" -exec basename {} .rej \;); do
-                echo "Patching file: $file with fix_$file.patch"
-                patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.patch"
-              done
-              echo "Patching Hook Mode!"
-              patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/overwrite_hook_mode.patch"
-              echo "Patching KSU_TOOLKIT Support for SusFS kernel!"
-              patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/ksu_toolkit.patch"
-              if [ "$KSUVER" -le 33095 ]; then
-                echo "Patching Multi-manager Support for SusFS kernel!"
-                patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/multi_manager.patch"
-              fi
-              if [ "$KSUVER" -ge 33068 ] && [ "$KSUVER" -lt 33070 ]; then
-                echo "Patching Multi-manager sepolicy Support for SusFS kernel!"
-                patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/multi_sepolicy_fix.patch"
-              fi
-            else
-              cd "$KSU_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
-            fi
-            ;;
-          "v2.2.0")
-            if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
-              cd "$KSUN_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
-              for file in $(find ./kernel -maxdepth 2 -name "*.rej" -exec basename {} .rej \;); do
-                echo "Patching file: $file with fix_$file.patch"
-                patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/fix_$file.patch"
-              done
-              echo "Patching Hook Mode!"
-              patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/overwrite_hook_mode.patch"
-              echo "Patching KSU_TOOLKIT Support for SusFS kernel!"
-              patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/next/susfs_fix_patches/$susfs_version/ksu_toolkit.patch"
-            else
-              cd "$KSU_FOLDER"
-              patch -p1 --forward < "$SUSFS_FOLDER/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
-            fi
-            ;;
-          *)
-            echo "::error::Unsupported SUSFS version: $susfs_version"
-            exit 1
-            ;;
-        esac
+        # SukiSU (builtin) / BakaSU (main) 内核代码已内置 SUSFS 集成 (config KSU_SUSFS)，
+        # 无需再对 KSU 树打 10_enable_susfs_for_ksu.patch，仅保留内核侧 SUSFS 补丁。
+        echo "SukiSU/BakaSU 使用内置 SUSFS 支持，跳过 KSU 树 SUSFS 补丁"
         
         cd "$COMMON_KERNEL_FOLDER"
         if [ "${{ env.ANDROID_VER }}" = "android15" ] && [ "${{ env.KERNEL_VER }}" = "6.6" ]; then
@@ -1260,6 +1276,25 @@ runs:
         
         echo "::endgroup::"
 
+    - name: Enable KPM (CONFIG_KPM)
+      shell: bash
+      if: ${{ startsWith(inputs.use_kpm, 'enabled') || startsWith(inputs.use_kpm, 'patched') }}
+      run: |
+        set -euo pipefail
+        echo "::group::Enable KPM"
+        if [ "${{ inputs.ksu_type }}" != "SukiSU" ]; then
+          echo "::warning title=KPM 已跳过::KPM 功能仅 SukiSU 支持（当前变体: ${{ inputs.ksu_type }}），已跳过"
+          echo "::endgroup::"
+          exit 0
+        fi
+        if grep -RqsE '^[[:space:]]*config[[:space:]]+KPM([[:space:]]|$)' "$KSU_FOLDER/kernel" 2>/dev/null; then
+          echo "CONFIG_KPM=y" >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig"
+          echo "✅ CONFIG_KPM=y enabled (SukiSU KPM)"
+        else
+          echo "::warning title=KPM 已跳过::当前 SukiSU 代码未声明 CONFIG_KPM，已跳过 KPM 功能"
+        fi
+        echo "::endgroup::"
+
     - name: Add BBG
       if: ${{ env.OP_BBG == 'true' }}
       shell: bash
@@ -1284,17 +1319,6 @@ runs:
         echo "✅ BBG LSM added"
         echo "::endgroup::"
 
-    - name: Apply KSU Hooks
-      shell: bash
-      if: ${{ env.NEED_HOOKS == 'true' }}
-      run: |
-        set -euo pipefail
-        echo "::group::Apply KSU hooks"
-        cd "$COMMON_KERNEL_FOLDER"
-        patch -p1 < "$KERNEL_PATCHES_FOLDER/next/scope_min_manual_hooks_v1.4.patch"
-        echo "✅ KSU hooks applied"
-        echo "::endgroup::"
-
     - name: Apply Other Patches
       shell: bash
       run: |
@@ -1314,7 +1338,7 @@ runs:
           echo "Patching hmbird!"
           HMBIRD_MODEL=$(echo "$OP_MODEL" | sed 's/-[0-9]\+\.[0-9]\+\.[0-9]\+$//')
           case "$OP_MODEL" in
-            OP-ACE-5-ULTRA-6.6.50|OP-ACE-5-PRO-6.6.30|OP13-6.6.30|OP13-CPH-6.6.56|OP13T-6.6.89|OP13-6.6.89|OP-ACE-5-PRO-6.6.89|OP-PAD-2-PRO-6.6.89|OP-PAD-3-SM8750-6.6.89|OP-ACE-5-ULTRA-6.6.89|OP-ACE-6-6.6.89)
+            OP-ACE-5-ULTRA-6.6.50|OP-ACE-5-PRO-6.6.30|OP13-6.6.30|OP13-CPH-6.6.56|OP13T-6.6.89|OP13-6.6.89|OP-ACE-5-PRO-6.6.89|OP-PAD-2-PRO-6.6.89|OP-PAD-3-SM8750-6.6.89|OP-ACE-6-6.6.89)
               FENGCHI_DIR="$KERNEL_PATCHES_FOLDER/oneplus/hmbird/deprecated" ;;
             *)
               FENGCHI_DIR="$KERNEL_PATCHES_FOLDER/oneplus/hmbird" ;;
@@ -1767,12 +1791,41 @@ runs:
 
     - name: Customize Kernel Branding
       shell: bash
+      env:
+        CUSTOM_VERSION_INPUT: ${{ inputs.custom_version }}
       run: |
         set -euo pipefail
         echo "Customize Kernel Branding"
         cd "$COMMON_KERNEL_FOLDER"
         mkdir -p out
-        CUSTOM_LOCALVERSION="-${ANDROID_VER}-${OP_UNAME}"
+        # AnyKernel3-style: drop ALL whitespace from the input
+        CUSTOM_VERSION_INPUT="$(printf '%s' "$CUSTOM_VERSION_INPUT" | tr -d '[:space:]')"
+        if [ -n "$CUSTOM_VERSION_INPUT" ]; then
+          if [[ "$CUSTOM_VERSION_INPUT" =~ [^A-Za-z0-9._-] ]]; then
+            echo "::error::custom_version contains invalid characters. Allowed: letters, digits, ., _, -. Got: '$CUSTOM_VERSION_INPUT'"
+            exit 1
+          fi
+          # Strip a leading "x.y.z" kernel version prefix (uname already starts with the Makefile VERSION)
+          CLEAN_VERSION="$(printf '%s' "$CUSTOM_VERSION_INPUT" | sed -E 's/^[0-9]+\.[0-9]+\.[0-9]+//')"
+          if [ -z "$CLEAN_VERSION" ]; then
+            echo "::error::custom_version is empty after stripping the leading kernel version prefix. Got: '$CUSTOM_VERSION_INPUT'"
+            exit 1
+          fi
+          # Normalize to a single leading '-'
+          case "$CLEAN_VERSION" in
+            -*) : ;;
+            *) CLEAN_VERSION="-${CLEAN_VERSION}" ;;
+          esac
+          # Non-fatal warning: final uname release would exceed the 64-char kernel limit
+          TOTAL_LEN=$(( ${#TKERNEL_VER} + ${#CLEAN_VERSION} ))
+          if [ "$TOTAL_LEN" -gt 64 ]; then
+            echo "::warning::Final kernel version '${TKERNEL_VER}${CLEAN_VERSION}' is ${TOTAL_LEN} chars (>64) and may be truncated by the kernel."
+          fi
+          CUSTOM_LOCALVERSION="${CLEAN_VERSION}"
+          echo "Custom version name: $CUSTOM_LOCALVERSION"
+        else
+          CUSTOM_LOCALVERSION="-${ANDROID_VER}-${OP_UNAME}"
+        fi
         echo "CUSTOM_LOCALVERSION=$CUSTOM_LOCALVERSION" >> "$GITHUB_ENV"
 
     - name: Disable GPUEB
@@ -1873,6 +1926,7 @@ runs:
       shell: bash
       env:
         PYTHONWARNINGS: "ignore:invalid escape sequence"
+        CUSTOM_BUILD_TIMESTAMP: ${{ inputs.build_timestamp }}
       run: |
         set -euo pipefail
         echo "::group::Build kernel with ccache optimization"
@@ -1910,14 +1964,33 @@ runs:
         echo 'ld.lld "$@" --thinlto-jobs=$(nproc --all)' >> "$COMMON_KERNEL_FOLDER/ld-wrapper"
         chmod +x "$COMMON_KERNEL_FOLDER/ld-wrapper"
         
-        KERNEL_BUILD_DATE=$(date -u)
         export SOURCE_DATE_EPOCH=$COMMIT_TIMESTAMP
-        if [ -n "${{ inputs.build_timestamp }}" ]; then
-          export KBUILD_BUILD_TIMESTAMP="${{ inputs.build_timestamp }}"
+        if [ -n "$CUSTOM_BUILD_TIMESTAMP" ]; then
+          # AnyKernel3-style custom build timestamp: normalize spaces -> validate format -> parse -> verify weekday
+          CUSTOM_BUILD_TIMESTAMP="$(printf '%s' "$CUSTOM_BUILD_TIMESTAMP" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/[[:space:]][[:space:]]*/ /g')"
+          TIME_REGEX='^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ( ?[1-9]|0[1-9]|[12][0-9]|3[01]) ([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9] UTC [0-9]{4}$'
+          if [[ ! "$CUSTOM_BUILD_TIMESTAMP" =~ $TIME_REGEX ]]; then
+            echo "::error::build_timestamp must look like 'Tue Dec  1 08:10:00 UTC 2026' (Wkd Mon DD HH:MM:SS UTC YYYY, weekday must match the date). Got: '$CUSTOM_BUILD_TIMESTAMP'"
+            exit 1
+          fi
+          # Parse into a canonical UTC stamp (also rejects impossible dates such as Feb 30)
+          NORMALIZED_TS="$(LC_ALL=C TZ=UTC date -u -d "$CUSTOM_BUILD_TIMESTAMP" +'%a %b %e %T UTC %Y' 2>/dev/null || true)"
+          if [ -z "$NORMALIZED_TS" ]; then
+            echo "::error::build_timestamp is not a valid UTC date/time. Got: '$CUSTOM_BUILD_TIMESTAMP'"
+            exit 1
+          fi
+          # GNU date ignores the weekday in its input, so parse the real weekday separately and compare
+          TYPED_WD="${CUSTOM_BUILD_TIMESTAMP%% *}"
+          REAL_WD="$(LC_ALL=C TZ=UTC date -u -d "${CUSTOM_BUILD_TIMESTAMP#* }" +%a 2>/dev/null || true)"
+          if [ -z "$REAL_WD" ] || [ "$TYPED_WD" != "$REAL_WD" ]; then
+            echo "::error::build_timestamp weekday does not match the date. Expected: ${REAL_WD:-unknown} (normalized: $NORMALIZED_TS)"
+            exit 1
+          fi
+          export KBUILD_BUILD_TIMESTAMP="$NORMALIZED_TS"
           echo "📅 Using custom build timestamp: $KBUILD_BUILD_TIMESTAMP"
         else
-          export KBUILD_BUILD_TIMESTAMP="$KERNEL_BUILD_DATE"
-          echo "📅 Using current UTC build timestamp: $KBUILD_BUILD_TIMESTAMP"
+          export KBUILD_BUILD_TIMESTAMP="$(TZ='CST-8' date +'%a %b %d %T UTC %Y')"
+          echo "📅 Using current build timestamp (UTC+8): $KBUILD_BUILD_TIMESTAMP"
         fi
         echo "EFFECTIVE_BUILD_TIMESTAMP=$KBUILD_BUILD_TIMESTAMP" >> "$GITHUB_ENV"
         export KBUILD_BUILD_USER="${BUILD_USER:-kernel}"
@@ -2104,7 +2177,7 @@ runs:
           if [ -f "${{ env.CCACHE_LOGFILE }}" ]; then
             echo "Rename ccache log"
             LOG_DIR=$(dirname "${{ env.CCACHE_LOGFILE }}")
-            NEW_LOG_NAME="${{ env.OP_MODEL }}_${{ env.OP_OS_VERSION }}_${{ env.KERNEL_FULL_VER }}_ccache.log"
+            NEW_LOG_NAME="${{ env.MODEL_FLAT }}_${{ env.OP_OS_VERSION }}_${{ env.KERNEL_FULL_VER }}_ccache.log"
             mv "${{ env.CCACHE_LOGFILE }}" "$LOG_DIR/$NEW_LOG_NAME"
             echo "CCACHE_LOGFILE=$LOG_DIR/$NEW_LOG_NAME" >> $GITHUB_ENV
           else
@@ -2142,11 +2215,50 @@ runs:
         
         echo "::endgroup::"
         
-        echo "## 📊 ccache Statistics" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo '```' >> $GITHUB_STEP_SUMMARY
-        ccache -s --verbose >> $GITHUB_STEP_SUMMARY
-        echo '```' >> $GITHUB_STEP_SUMMARY
+
+    - name: Apply KPM Patch (patched Image with kptools)
+      shell: bash
+      if: ${{ startsWith(inputs.use_kpm, 'patched') && inputs.ksu_type == 'SukiSU' }}
+      run: |
+        set -euo pipefail
+        echo "::group::Apply KPM patch (kptools)"
+        # 与 Collect Build Stats 相同的三候选路径解析
+        IMG="$COMMON_KERNEL_FOLDER/out/arch/arm64/boot/Image"
+        if [ -f "$KERNEL_PLATFORM_FOLDER/out/$OP_ANDROID_VERSION-$OP_KERNEL_VERSION/dist/Image" ]; then
+          IMG="$KERNEL_PLATFORM_FOLDER/out/$OP_ANDROID_VERSION-$OP_KERNEL_VERSION/dist/Image"
+        elif [ -f "$KERNEL_PLATFORM_FOLDER/bazel-bin/common/kernel_aarch64/Image" ]; then
+          IMG="$KERNEL_PLATFORM_FOLDER/bazel-bin/common/kernel_aarch64/Image"
+        fi
+        
+        if [ ! -f "$IMG" ]; then
+          echo "::error::Kernel Image not found at: $IMG, cannot apply KPM patch"
+          exit 1
+        fi
+        echo "KPM patch target: $IMG"
+        
+        PATCH_TOOL="$GITHUB_WORKSPACE/SukiSU_patch/kpm/patch_linux"
+        if [ ! -f "$PATCH_TOOL" ]; then
+          echo "::error::KPM patch tool not found: $PATCH_TOOL"
+          exit 1
+        fi
+        
+        IMG_DIR="$(dirname "$IMG")"
+        cp -f "$PATCH_TOOL" "$IMG_DIR/kpm_patch"
+        chmod 755 "$IMG_DIR/kpm_patch"
+        cd "$IMG_DIR"
+        # kpm_patch 无参数运行：读取 ./Image 并输出 ./oImage
+        if ! ./kpm_patch; then
+          echo "::error::KPM patch tool failed (kptools may be incompatible with this kernel version)"
+          exit 1
+        fi
+        if [ ! -f ./oImage ]; then
+          echo "::error::KPM patch produced no oImage, kptools may be incompatible with this kernel version"
+          exit 1
+        fi
+        mv -f ./oImage ./Image
+        rm -f ./kpm_patch
+        echo "✅ KPM patched at build time (kptools) — flashing the AnyKernel3 zip requires no extra patching"
+        echo "::endgroup::"
 
     - name: Collect Build Stats / Validate Image
       id: collect_stats
@@ -2239,12 +2351,10 @@ runs:
           ;;
         esac
         
-        ZIP_MODEL=$(echo "$OP_MODEL" | sed 's/-[0-9]\+\.[0-9]\+\.[0-9]\+$//')
-        if [ "${{ env.OP_SUSFS }}" = true ]; then
-          ZIP_NAME="AK3_${ZIP_MODEL}_${OP_OS_VERSION}_${KERNEL_FULL_VER}_${{ inputs.ksu_type }}_${KSUVER:-unknown}_SuSFS_${SUSVER:-unknown}.zip"
-        else
-          ZIP_NAME="AK3_${ZIP_MODEL}_${OP_OS_VERSION}_${KERNEL_FULL_VER}_${{ inputs.ksu_type }}_${KSUVER:-unknown}.zip"
-        fi
+        ZIP_MODEL="$MODEL_FLAT"
+        # <ksu_variant>-<ksu_version>-<model>-<kernel_version>-<os_version>-AnyKernel3
+        ZIP_KERNEL_VER="${KERNEL_FULL_VER#*-}"
+        ZIP_NAME="${{ inputs.ksu_type }}-${KSUVER:-unknown}-${ZIP_MODEL}-${ZIP_KERNEL_VER}-${OP_OS_VERSION}-AnyKernel3.zip"
         mkdir -p "$ARTIFACTS_FOLDER"
         
         echo "Creating flashable ZIP: $ZIP_NAME"
@@ -2293,12 +2403,12 @@ runs:
           echo "Kernel Uname: ${{ env.KERNEL_UNAME }}"
           echo "Build User: ${{ env.BUILD_USER }}"
           echo "Build Host: ${{ env.BUILD_HOST }}"
-          if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
-            echo "KSUN Version: ${KSUVER:-unknown}"
-            echo "KSUN commit SHA: ${KSU_SHA:-unknown}"
+          if [ "${{ inputs.ksu_type }}" = "BakaSU" ]; then
+            echo "BakaSU Version: ${KSUVER:-unknown}"
+            echo "BakaSU commit SHA: ${KSU_SHA:-unknown}"
           else
-            echo "KSU Version: ${KSUVER:-unknown}"
-            echo "KSU commit SHA: ${KSU_SHA:-unknown}"
+            echo "SukiSU Version: ${KSUVER:-unknown}"
+            echo "SukiSU commit SHA: ${KSU_SHA:-unknown}"
           fi
           if [ "${{ env.OP_SUSFS }}" = true ]; then
             echo "SUSFS Version: ${SUSVER:-unknown}"
@@ -2333,79 +2443,6 @@ runs:
           echo "Artifact Name: ${{ env.ZIP_NAME }}"
         } | tee summary.txt
         
-        {
-          echo "### 🎯 Kernel Build Summary"
-          echo ""
-          echo "| Metric | Value |"
-          echo "|--------|-------|"
-          echo "| **Model** | ${{ env.OP_MODEL }} |"
-          echo "| **OS Version** | ${{ env.OP_OS_VERSION }} |"
-          echo "| **Kernel Version** | ${{ steps.save_metadata.outputs.kernel_version }} |"
-          echo "| **Kernel Uname** | \`${{ env.KERNEL_UNAME }}\` |"
-          echo "| **Build User** | ${{ env.BUILD_USER }} |"
-          echo "| **Build Host** | ${{ env.BUILD_HOST }} |"
-          if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
-            echo "| **KSUN Version** | ${KSUVER:-unknown} |"
-          else
-            echo "| **KSU Version** | ${KSUVER:-unknown} |"
-          fi
-          
-          if [ "$KSU_SHA" != "unknown" ]; then
-            if [ "${{ inputs.ksu_type }}" = "KSUN" ]; then
-              echo "| **KSUN Commit** | [\`${KSU_SHA:0:8}\`](https://github.com/KernelSU-Next/KernelSU-Next/commit/$KSU_SHA) |"
-            else
-              echo "| **KSU Commit** | [\`${KSU_SHA:0:8}\`](https://github.com/tiann/KernelSU/commit/$KSU_SHA) |"
-            fi
-          else
-            echo "| **KSU Commit** | unknown |"
-          fi
-          
-          if [ "${{ env.OP_SUSFS }}" = true ]; then
-            echo "| **SUSFS Version** | ${SUSVER:-unknown} |"
-            
-            if [ "$SUSFS_SHA" != "unknown" ]; then
-              echo "| **SUSFS Commit** | [\`${SUSFS_SHA:0:8}\`](https://gitlab.com/simonpunk/susfs4ksu/-/commit/$SUSFS_SHA) |"
-            else
-              echo "| **SUSFS Commit** | unknown |"
-            fi
-          fi
-          
-          echo ""
-          echo "### 🔧 OnePlus Features"
-          echo ""
-          echo "| Feature | Status |"
-          echo "|---------|--------|"
-          echo "| **Kernel Optimisations** | ${{ env.OP_OPT }} |"
-          echo "| **BBR** | ${{ env.OP_BBR }} |"
-          echo "| **BBRv3** | ${{ env.OP_BBR3 }} |"
-          echo "| **BBG** | ${{ env.OP_BBG }} |"
-          echo "| **HMBIRD SCX** | ${{ env.OP_HMBIRD }} |"
-          echo "| **TTL** | ${{ env.OP_TTL }} |"
-          echo "| **IP_SET & IPv6 NAT** | ${{ env.OP_IP_SET }} |"
-          echo "| **Unicode Fix** | ${{ env.OP_UNICODE }} |"
-          echo "| **NTSync** | ${{ env.OP_NTSYNC }} |"
-          echo "| **Droidspaces** | ${{ env.OP_DS }} |"
-          
-          echo ""
-          echo "### 📊 Build Metrics"
-          echo ""
-          echo "| Metric | Value |"
-          echo "|--------|-------|"
-          echo "| **Optimization** | ${{ inputs.optimize_level }} |"
-          echo "| **Clean Build** | ${{ inputs.clean }} |"
-          echo "| **Build Time** | ${{ steps.collect_stats.outputs.build_time }}s |"
-          
-          if [ "${{ inputs.clean }}" == "false" ]; then
-            echo "| **ccache Hit Rate** | ${{ steps.ccache_stats.outputs.hit_rate }} |"
-            echo "| **ccache Direct Rate** | ${{ steps.ccache_stats.outputs.direct_rate }} |"
-          fi
-          
-          echo "| **Image SHA256** | \`${{ steps.collect_stats.outputs.image_sha256 }}\` |"
-          echo "| **Warnings** | ${{ steps.collect_stats.outputs.warnings_count }} |"
-          echo "| **Compiler** | \`${CLANG_VERSION:-unknown}\` |"
-          echo "| **Artifact Name** | \`${{ env.ZIP_NAME }}\` |"
-          echo "| **AnyKernel3 SHA256** | \`${{ steps.create_zip.outputs.zip_sha256 }}\` |"
-        } >> "$GITHUB_STEP_SUMMARY"
 
     - name: Upload Debug Artifacts
       if: ${{ always() && !cancelled() && inputs.debug == 'true' }}
@@ -2430,11 +2467,99 @@ runs:
       if: success() && inputs.debug == 'true' && steps.build_kernel_step.conclusion == 'success'
       uses: actions/upload-artifact@v7
       with:
-        name: "${{ env.OP_MODEL }}_${{ env.OP_OS_VERSION }}_${{ env.KERNEL_FULL_VER }}_ccache.log"
+        name: "${{ env.MODEL_FLAT }}_${{ env.OP_OS_VERSION }}_${{ env.KERNEL_FULL_VER }}_ccache.log"
         path: ${{ env.CCACHE_LOGFILE }}
         archive: false
         compression-level: 0
         retention-days: 90
+
+    - name: Collect build failure logs
+      if: ${{ always() && steps.build_kernel_step.conclusion == 'failure' }}
+      shell: bash
+      run: |
+        set -uo pipefail
+        LOG_DIR="${{ github.workspace }}/build-logs"
+        mkdir -p "$LOG_DIR"
+
+        {
+          echo "Device: ${{ env.OP_MODEL }} (${{ env.OP_OS_VERSION }})"
+          echo "Kernel: ${{ env.KERNEL_FULL_VER }}"
+          echo "KernelSU: ${{ inputs.ksu_type }}"
+          echo "Compiler: ${{ env.CLANG_VERSION }}"
+          echo "Optimization: ${{ inputs.optimize_level }}"
+          echo "Clean build: ${{ inputs.clean }}"
+          echo "Git commit: ${{ github.sha }}"
+          echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo "Generated at: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+        } > "$LOG_DIR/summary.txt"
+
+        # Main build log lives in the workspace root (tee build.log)
+        for f in build.log install.log; do
+          [ -f "$f" ] && cp "$f" "$LOG_DIR/" || true
+        done
+        for f in "${{ env.COMMON_KERNEL_FOLDER }}/out/build.log" "${{ env.COMMON_KERNEL_FOLDER }}/out/install.log"; do
+          [ -f "$f" ] && cp "$f" "$LOG_DIR/" || true
+        done
+
+        df -h "${{ github.workspace }}" > "$LOG_DIR/disk-usage.txt" 2>&1 || true
+        ccache -s > "$LOG_DIR/ccache-stats.txt" 2>&1 || true
+
+        ls -la "$LOG_DIR"
+
+    - name: Upload build failure logs
+      if: ${{ always() && steps.build_kernel_step.conclusion == 'failure' }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: "${{ env.MODEL_FLAT }}_${{ env.OP_OS_VERSION }}_${{ env.KERNEL_FULL_VER }}_${{ inputs.ksu_type }}-Build-Logs"
+        path: build-logs/
+        if-no-files-found: warn
+        compression-level: 9
+        retention-days: 7
+
+    - name: Collect patch rejects
+      if: ${{ always() }}
+      shell: bash
+      run: |
+        set -uo pipefail
+        REJECTS_DIR="${{ github.workspace }}/patch-rejects"
+        mkdir -p "$REJECTS_DIR"
+
+        SEARCH_ROOT="${{ env.CONFIG_FOLDER }}"
+        if [ -z "$SEARCH_ROOT" ] || [ ! -d "$SEARCH_ROOT" ]; then
+          echo "Search root not available, skipping rejects collection."
+          echo "REJ_COUNT=0" >> "$GITHUB_ENV"
+          exit 0
+        fi
+
+        mapfile -t REJS < <(find "$SEARCH_ROOT" -type f -name '*.rej' 2>/dev/null || true)
+        REJ_COUNT=${#REJS[@]}
+        echo "Found $REJ_COUNT .rej file(s)"
+        echo "REJ_COUNT=$REJ_COUNT" >> "$GITHUB_ENV"
+
+        if [ "$REJ_COUNT" -gt 0 ]; then
+          for REJ in "${REJS[@]}"; do
+            REL="${REJ#"$SEARCH_ROOT"/}"
+            DEST="$REJECTS_DIR/$REL"
+            mkdir -p "$(dirname "$DEST")"
+            cp "$REJ" "$DEST"
+            ORIG="${REJ%.rej}"
+            if [ -f "$ORIG" ]; then
+              cp "$ORIG" "${DEST%.rej}"
+            fi
+            echo "$REL" >> "$REJECTS_DIR/index.txt"
+          done
+          echo "::warning::Found $REJ_COUNT patch reject file(s), uploaded as the Rejects artifact"
+        fi
+
+    - name: Upload patch rejects
+      if: ${{ always() && env.REJ_COUNT > 0 }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: "${{ env.MODEL_FLAT }}_${{ env.OP_OS_VERSION }}_${{ env.KERNEL_FULL_VER }}_${{ inputs.ksu_type }}-Rejects"
+        path: patch-rejects/
+        if-no-files-found: ignore
+        compression-level: 9
+        retention-days: 7
 
     - name: 📥 Checkout Code
       uses: actions/checkout@v6
@@ -2445,11 +2570,13 @@ runs:
 
     - name: Save ccache cache
       if: always() && steps.build_kernel_step.conclusion == 'success'
+      continue-on-error: true
       uses: ./action-source/.github/actions/cache/save
       with:
         cache_path: ${{ env.CCACHE_DIR }}
-        cache_key: ${{ inputs.ksu_type }}-v3-${{ env.OP_MODEL }}-${{ env.OP_OS_VERSION }}-${{ env.KERNEL_FULL_VER }}-${{ env.CLANG_VERSION_SHORT }}
+        cache_key: ${{ inputs.ksu_type }}-v3-${{ env.MODEL_FLAT }}-${{ env.OP_OS_VERSION }}-${{ env.KERNEL_FULL_VER }}-${{ env.CLANG_VERSION_SHORT }}
         cache_bucket: "ccache-cache"
+        stagger: ${{ inputs.cache_stagger }}
         debug: ${{ inputs.debug }}
         github_token: ${{ inputs.github_token }}
         working_dir: "./main-source"

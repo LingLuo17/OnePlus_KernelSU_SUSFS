@@ -150,6 +150,21 @@ jobs:
                             print(f"♻️ [{op_model}][{op_os_version}] -> Using existing {type_label}: {rev}")
               except Exception as e:
                   print(f"⚠️ Failed to process {op_manifest}: {e}")
+          # SUSFS 分支归档也进缓存：构建时优先从本仓库 Release 下载，
+          # 避免几十个矩阵 build job 并发请求 GitLab 归档接口被限流
+          for br in ["gki-android12-5.10", "gki-android13-5.15", "gki-android14-6.1",
+                     "gki-android15-6.6", "gki-android16-6.12"]:
+              fn = f"susfs-{br}.tar.gz"
+              if fn not in unique_toolchains:
+                  unique_toolchains[fn] = {
+                      "rev": br,
+                      "url": f"https://gitlab.com/simonpunk/susfs4ksu/-/archive/{br}/susfs4ksu-{br}.tar.gz",
+                      "name": f"susfs4ksu-{br}",
+                      "type_label": "susfs",
+                      "cache_file": fn,
+                  }
+                  print(f"🆕 SUSFS archive queued: {fn}")
+
           matrix = {"include": list(unique_toolchains.values())}
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
               f.write(f"matrix={json.dumps(matrix)}\n")
@@ -168,29 +183,85 @@ jobs:
       - name: Sync & Upload
         run: |
           TARGET_REPO="${{ github.repository }}"
+          UPSTREAM_REPO="WildKernels/OnePlus_KernelSU_SUSFS"
           REV="${{ matrix.rev }}"
           FILENAME="${{ matrix.cache_file }}"
           BASE_URL="https://github.com/${TARGET_REPO}/releases/download/toolchain-cache"
-          
+          UPSTREAM_URL="https://github.com/${UPSTREAM_REPO}/releases/download/toolchain-cache"
+
           echo "🔍 Checking if $FILENAME exists in mirror..."
-          
+
           STATUS=$(curl -IsL -o /dev/null -w "%{http_code}" "$BASE_URL/$FILENAME")
           PART_STATUS=$(curl -IsL -o /dev/null -w "%{http_code}" "$BASE_URL/${FILENAME}.partaa")
-          
+
+          # Fast path: copy from upstream WildKernels cache instead of re-downloading from origin
+          UP_STATUS=$(curl -IsL -o /dev/null -w "%{http_code}" "$UPSTREAM_URL/$FILENAME")
+          UP_PART_STATUS=$(curl -IsL -o /dev/null -w "%{http_code}" "$UPSTREAM_URL/${FILENAME}.partaa")
+
           if [ "$STATUS" -eq 200 ] || [ "$PART_STATUS" -eq 200 ]; then
             echo "✅ ${{ matrix.type_label }} revision ${{ matrix.rev }} already cached."
-          else
-            echo "📥 Not found. Downloading ${{ matrix.type_label }} from source..."
-            
-            aria2c -x16 -s16 -k1M -j5 --file-allocation=none --console-log-level=error --summary-interval=0 --retry-wait=5 --max-tries=10 -o "$FILENAME" "${{ matrix.url }}"
-            
+          elif [ "$UP_STATUS" -eq 200 ] || [ "$UP_PART_STATUS" -eq 200 ]; then
+            echo "⚡ Found in upstream ${UPSTREAM_REPO} cache — copying instead of re-downloading from origin..."
+
+            if [ "$UP_STATUS" -eq 200 ]; then
+              # Upstream has a single file
+              aria2c -x16 -s16 -k1M --file-allocation=none --console-log-level=error --summary-interval=0 --retry-wait=5 --max-tries=10 -o "$FILENAME" "$UPSTREAM_URL/$FILENAME"
+            else
+              # Upstream has split parts (.partaa, .partab, ...) — download all and concat
+              : > parts.list
+              for c1 in {a..z}; do
+                done_flag=0
+                for c2 in {a..z}; do
+                  s="${c1}${c2}"
+                  code=$(curl -IsL -o /dev/null -w "%{http_code}" "$UPSTREAM_URL/${FILENAME}.part$s")
+                  if [ "$code" = "200" ]; then
+                    echo "$UPSTREAM_URL/${FILENAME}.part$s" >> parts.list
+                  else
+                    done_flag=1
+                    break
+                  fi
+                done
+                [ "$done_flag" = "1" ] && break
+              done
+
+              echo "📥 Downloading $(wc -l < parts.list) part(s) from upstream..."
+              aria2c -x16 -s16 -k1M -j4 --file-allocation=none --console-log-level=error --summary-interval=0 --retry-wait=5 --max-tries=10 --input-file=parts.list
+
+              echo "🔗 Concatenating parts..."
+              cat "${FILENAME}".part* > "$FILENAME"
+              rm -f "${FILENAME}".part* parts.list
+            fi
+
             FILE_SIZE=$(stat -c%s "$FILENAME")
             MAX_SIZE=2000000000 # ~1.86GB
-            
+
             if [ "$FILE_SIZE" -gt "$MAX_SIZE" ]; then
               echo "⚠️ File > 2GB. Splitting..."
               split -b 1500M -a 2 "$FILENAME" "${FILENAME}.part"
-              
+
+              for part in "${FILENAME}".part*; do
+                echo "📤 Uploading $part..."
+                gh release upload "toolchain-cache" "$part" --clobber --repo "$TARGET_REPO"
+              done
+            else
+              echo "📤 Uploading single file..."
+              gh release upload "toolchain-cache" "$FILENAME" --clobber --repo "$TARGET_REPO"
+            fi
+
+            rm -f "$FILENAME"
+            echo "✅ Copied from upstream cache."
+          else
+            echo "📥 Not found in local or upstream cache. Downloading ${{ matrix.type_label }} from source..."
+
+            aria2c -x16 -s16 -k1M -j5 --file-allocation=none --console-log-level=error --summary-interval=0 --retry-wait=5 --max-tries=10 -o "$FILENAME" "${{ matrix.url }}"
+
+            FILE_SIZE=$(stat -c%s "$FILENAME")
+            MAX_SIZE=2000000000 # ~1.86GB
+
+            if [ "$FILE_SIZE" -gt "$MAX_SIZE" ]; then
+              echo "⚠️ File > 2GB. Splitting..."
+              split -b 1500M -a 2 "$FILENAME" "${FILENAME}.part"
+
               for part in "${FILENAME}".part*; do
                 echo "📤 Uploading $part..."
                 gh release upload "toolchain-cache" "$part" --clobber --repo "$TARGET_REPO"

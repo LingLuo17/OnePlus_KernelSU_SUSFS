@@ -330,6 +330,9 @@ jobs:
 
       - name: Manage Notification Issue
         if: steps.scanner.outputs.changes_found == 'true'
+        # Notification needs Issues enabled on the repository; never let a
+        # disabled/failing notification block the status page update below
+        continue-on-error: true
         run: |
           gh label create "notification" --color "BFD4F2" --repo ${{ github.repository }} --force || true
           DATE_TITLE="Kernel Updates - $(date +'%Y-%m-%d')"

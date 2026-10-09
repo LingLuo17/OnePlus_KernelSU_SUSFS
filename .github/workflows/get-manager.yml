@@ -1,0 +1,271 @@
+name: GetManager
+
+on:
+  workflow_call: # This allows this workflow to be called from another workflow
+    inputs:
+      ksu_variant:
+        required: true
+        type: string
+jobs:
+  get_ksu_manager:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: 安装依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git curl jq unzip
+
+      - name: 获取 KSU & SUSFS 版本
+        id: get_version
+        run: |
+          if [ "${{ inputs.ksu_variant }}" == "SukiSU" ]; then
+            echo "This is the SukiSU variant"
+            git clone --depth 1 https://github.com/SukiSU-Ultra/SukiSU-Ultra.git KernelSU
+          elif [ "${{ inputs.ksu_variant }}" == "BakaSU" ]; then
+            echo "This is the BakaSU variant"
+            git clone https://github.com/Baka-SU/BakaSU.git KernelSU
+          else
+            echo "Unknown variant"
+            exit 1
+          fi
+
+          cd KernelSU
+
+          # 计算KSU版本号
+          KSU_GIT_VERSION=$(git rev-list --count HEAD)
+
+          if [ "${{ inputs.ksu_variant }}" == "SukiSU" ]; then
+            KSU_VERSION=$((40000 + KSU_GIT_VERSION - 2815))
+          else
+            KSU_VERSION=$((30700 + KSU_GIT_VERSION))
+          fi
+          echo $KSU_VERSION
+          echo "KSU_VERSION=$KSU_VERSION" >> $GITHUB_ENV
+
+          # 计算SUSFS版本号
+          INFO="https://gitlab.com/simonpunk/susfs4ksu/-/raw/gki-android14-6.1/ksu_module_susfs/module.prop"
+          SUS_VERSION=$(curl -s $INFO | awk -F '=' '$1 == "version" { print $2 }')
+          echo $SUS_VERSION
+
+          echo "KSU_VERSION (for manager consistency check): $KSU_VERSION / SUSFS module: $SUS_VERSION"
+
+      - name: 添加 KernelSU
+        id: add_KSU
+        continue-on-error: true
+        run: |
+          if [ "${{ inputs.ksu_variant }}" == "SukiSU" ]; then
+            echo "SukiSU..."
+            REPO="SukiSU-Ultra/SukiSU-Ultra"
+            KSUM="manager"
+          elif [ "${{ inputs.ksu_variant }}" == "BakaSU" ]; then
+            echo "BakaSU..."
+            REPO="Baka-SU/BakaSU"
+            KSUM="manager"
+          fi
+
+          FILENAME="build-manager.yml"
+
+          get_manager_artifacts() {
+            local artifacts="$1"
+            if [ "${{ inputs.ksu_variant }}" == "BakaSU" ]; then
+              printf '%s' "$artifacts" | jq -r \
+                '.artifacts[] | select(.name == "Manager-release" or .name == "Spoofed-Manager-release") | "\(.name)\t\(.archive_download_url)"'
+            else
+              printf '%s' "$artifacts" | jq -r --arg needle "$KSUM" \
+                '.artifacts[] | select((.name | ascii_downcase) | contains($needle)) | "\(.name)\t\(.archive_download_url)"'
+            fi
+          }
+
+          # 仿 BakaSU_CI：只拉取官方 main 分支最新上传（push）的 Manager 构建，
+          # 并以下载到的 APK 文件名实测 versionCode 命名，确保包名与包内容严格一致
+          # 注意：runs 列表 API 的排序/缓存在部分仓库不可靠（可能漏掉最新构建），
+          # 而 created 日期过滤参数走可靠查询路径，因此按日期窗口从今天往回推进检索
+          RUNS_BASE="https://api.github.com/repos/$REPO/actions/workflows/$FILENAME/runs?status=success"
+          CAND_FILE=$(mktemp)
+          TODAY=$(date -u +%Y-%m-%d)
+
+          for DAYS in 0 7 30 90 365; do
+            if [ "$DAYS" -eq 0 ]; then
+              FROM="$TODAY"
+            else
+              FROM=$(date -u -d "today - $DAYS days" +%Y-%m-%d)
+            fi
+            echo "检索 $FROM ~ $TODAY 期间官方 main 分支 push 构建..."
+            for PAGE in 1 2 3; do
+              RUNS=""
+              for ATTEMPT in 1 2 3; do
+                RUNS=$(curl -s --fail --max-time 30 -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                  "$RUNS_BASE&created=$FROM..$TODAY&per_page=30&page=$PAGE") && [ -n "$RUNS" ] && break
+                echo "查询构建列表失败，重试 ($ATTEMPT/3)..."
+                RUNS=""
+                sleep 3
+              done
+              RUN_COUNT=$(printf '%s' "$RUNS" | jq '.workflow_runs | length')
+              if [ "$RUN_COUNT" -eq 0 ]; then
+                break
+              fi
+              for INDEX in $(seq 0 $((RUN_COUNT - 1))); do
+                BUILD_ID=$(printf '%s' "$RUNS" | jq -r ".workflow_runs[$INDEX].id")
+                HEAD_SHA=$(printf '%s' "$RUNS" | jq -r ".workflow_runs[$INDEX].head_sha")
+                HEAD_BRANCH=$(printf '%s' "$RUNS" | jq -r ".workflow_runs[$INDEX].head_branch")
+                EVENT=$(printf '%s' "$RUNS" | jq -r ".workflow_runs[$INDEX].event")
+                CREATED=$(printf '%s' "$RUNS" | jq -r ".workflow_runs[$INDEX].created_at")
+                # 只认官方 main 分支 push 上传的构建，跳过 PR / 其他分支构建
+                if [ "$HEAD_BRANCH" != "main" ] || [ "$EVENT" != "push" ]; then
+                  echo "跳过构建 $BUILD_ID ($HEAD_BRANCH/$EVENT): 非官方 main push 构建"
+                  continue
+                fi
+                printf '%s\t%s\t%s\n' "$CREATED" "$BUILD_ID" "$HEAD_SHA" >> "$CAND_FILE"
+              done
+            done
+            if [ -s "$CAND_FILE" ]; then
+              break
+            fi
+          done
+
+          if [ ! -s "$CAND_FILE" ]; then
+            rm -f "$CAND_FILE"
+            echo "未找到官方 main 分支 push 上传的 Manager 构建。"
+            exit 1
+          fi
+          # sort -u 去重（窗口扩大后会重复收集），按创建时间降序（最新优先）
+          CAND_COUNT=$(sort -u -t$'\t' -k1,1r "$CAND_FILE" | wc -l)
+          echo "共找到 $CAND_COUNT 个官方 main push 构建，从最新开始逐个下载（以 APK 文件名实测版本）..."
+
+          while IFS=$'\t' read -r CREATED BUILD_ID HEAD_SHA; do
+            ARTIFACTS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              "https://api.github.com/repos/$REPO/actions/runs/$BUILD_ID/artifacts")
+            CANDIDATE_LIST=$(get_manager_artifacts "$ARTIFACTS")
+            if [ -z "$CANDIDATE_LIST" ]; then
+              echo "跳过构建 $BUILD_ID (main, $CREATED): 未找到包含 '$KSUM' 的产物"
+              continue
+            fi
+
+            echo "下载构建 $BUILD_ID (main, $CREATED, ${HEAD_SHA:0:8}) 的产物..."
+            rm -rf manager-artifacts
+            mkdir -p manager-artifacts
+            while IFS=$'\t' read -r NAME URL; do
+              SAFE_NAME=$(echo "$NAME" | tr '/ ' '__')
+              if ! curl -sL --fail -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                -o "manager-artifacts/$SAFE_NAME.zip" "$URL"; then
+                echo "下载 $NAME 失败"
+                continue
+              fi
+              mkdir -p "manager-artifacts/$SAFE_NAME"
+              unzip -oq "manager-artifacts/$SAFE_NAME.zip" -d "manager-artifacts/$SAFE_NAME" || echo "解压 $NAME 失败"
+              rm -f "manager-artifacts/$SAFE_NAME.zip"
+            done <<< "$CANDIDATE_LIST"
+
+            # 从 APK 文件名提取实测 versionCode 作为 artifact 命名
+            # 优先 arm64-v8a release（BakaSU 下游只保留这一个 ABI）
+            APK_FILE=$(find manager-artifacts -type f -name "*-arm64-v8a-release.apk" | head -n 1)
+            if [ -z "$APK_FILE" ]; then
+              APK_FILE=$(find manager-artifacts -type f -name "*release.apk" ! -name "*debug*" | head -n 1)
+            fi
+            if [ -z "$APK_FILE" ]; then
+              echo "跳过构建 $BUILD_ID (main, $CREATED): artifact 中无 release APK"
+              continue
+            fi
+            # 先剥离 ABI 段再提取版本，避免 x86_64 的 "_64" 等数字尾巴被误当成 versionCode
+            CLEAN_NAME=$(basename "$APK_FILE" | sed -E 's/-(arm64-v8a|armeabi-v7a|armv7|riscv64|x86_64|x86|universal)-release\.apk$/.apk/')
+            ACTUAL_VERSION=$(echo "$CLEAN_NAME" | grep -oE '_[0-9]+' | tail -n 1 | tr -d '_')
+            if ! [[ "$ACTUAL_VERSION" =~ ^[0-9]+$ ]]; then
+              echo "跳过构建 $BUILD_ID (main, $CREATED): 无法从 APK 文件名解析版本 ($(basename "$APK_FILE"))"
+              continue
+            fi
+
+            MANAGER_VERSION="$ACTUAL_VERSION"
+            MANAGER_BUILD_ID="$BUILD_ID"
+            MANAGER_HEAD_SHA="$HEAD_SHA"
+            break
+          done < <(sort -u -t$'\t' -k1,1r "$CAND_FILE")
+          rm -f "$CAND_FILE"
+
+          if [ -z "$MANAGER_VERSION" ]; then
+            echo "未获取到官方 main 分支最新上传的 Manager artifact。"
+            exit 1
+          fi
+          echo "选择 Manager 构建 $MANAGER_BUILD_ID (main, ${MANAGER_HEAD_SHA:0:8}), APK 实测版本 $MANAGER_VERSION"
+
+          echo "MANAGER_VERSION=$MANAGER_VERSION" >> $GITHUB_ENV
+
+          if [ "${{ inputs.ksu_variant }}" == "BakaSU" ]; then
+            echo "仅保留 BakaSU arm64-v8a release 管理器..."
+            find manager-artifacts -type f -name "*.apk" ! -name "*-arm64-v8a-release.apk" -delete
+            find manager-artifacts -type f -name "*debug*.apk" -delete
+            if ! find manager-artifacts -type f -name "*-arm64-v8a-release.apk" | grep -q .; then
+              echo "未找到 BakaSU arm64-v8a release 管理器。"
+              exit 1
+            fi
+            find manager-artifacts -type f -name "*.apk" -print
+          fi
+
+          echo "MANAGER_FETCH_OK=true" >> $GITHUB_ENV
+
+      - name: 添加 SUSFS 模块
+        id: add_SUSFS
+        continue-on-error: true
+        run: |
+          # 模块通过 sidex15/susfs4ksu-module 的 GitHub Releases 发布，拉取最新 Release 资产
+          RELEASE_API="https://api.github.com/repos/sidex15/susfs4ksu-module/releases/latest"
+          RELEASE_JSON=""
+          for ATTEMPT in 1 2 3; do
+            RELEASE_JSON=$(curl -s --fail --max-time 30 \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "$RELEASE_API") \
+              && [ -n "$RELEASE_JSON" ] && break
+            echo "获取 Release 信息失败，重试 ($ATTEMPT/3)..."
+            sleep 5
+          done
+          if [ -z "$RELEASE_JSON" ]; then
+            echo "无法获取 susfs4ksu-module 最新 Release 信息"
+            exit 1
+          fi
+
+          TAG_NAME=$(printf '%s' "$RELEASE_JSON" | jq -r '.tag_name')
+          ASSET_URL=$(printf '%s' "$RELEASE_JSON" | jq -r '.assets[] | select((.name | contains("ksu_module_susfs")) and (.name | endswith(".zip"))) | .browser_download_url' | head -n 1)
+
+          if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = "null" ]; then
+            echo "Release $TAG_NAME 中未找到 ksu_module_susfs 模块 zip"
+            exit 1
+          fi
+
+          NAME="ksu_module_susfs.zip"
+          echo "下载 SUSFS 模块: $NAME (Release $TAG_NAME)"
+          if ! curl -sL --fail --retry 3 --max-time 120 -o "$NAME" "$ASSET_URL"; then
+            echo "下载 SUSFS 模块失败: $ASSET_URL"
+            exit 1
+          fi
+          echo "SUSFS_NAME=$TAG_NAME" >> $GITHUB_ENV
+
+          # Release 资产本身即完整模块 zip，校验完整性后直接放入模块目录
+          if ! unzip -t "$NAME" >/dev/null 2>&1; then
+            echo "下载的 SUSFS 模块 zip 损坏"
+            exit 1
+          fi
+          mkdir -p susfs-module
+          mv "$NAME" "susfs-module/$NAME"
+          ls -la susfs-module/
+
+      - name: Notify on failure
+        if: steps.add_KSU.outcome == 'failure'
+        run: echo "下载CI构建的KSU失败!"
+
+      - name: 上传APK
+        if: env.MANAGER_FETCH_OK == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.ksu_variant }}-Manager(${{ env.MANAGER_VERSION }})
+          path: |
+            manager-artifacts/**/*.apk
+          if-no-files-found: error
+
+      - name: 上传SUSFS模块
+        if: steps.add_SUSFS.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: susfs-${{ env.SUSFS_NAME }}
+          path: ./susfs-module/*

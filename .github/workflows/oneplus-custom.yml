@@ -1,0 +1,583 @@
+name: OnePlus Custom Kernel Build
+
+permissions:
+  contents: write
+  actions: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      op_model_a15:
+        description: '选择要构建的设备（A15）'
+        required: false
+        type: choice
+        default: '不构建 (A15)'
+        options:
+          - '不构建 (A15)'
+          - "OnePlus-Ace2-5.10.209 (A15)"
+          - "OnePlus-Ace2-5.10.226 (A15)"
+          - "OnePlus-Ace2-Pro-5.15.149 (A15)"
+          - "OnePlus-Ace2-Pro-5.15.167 (A15)"
+          - "OnePlus-Ace2V-5.10.209 (A15)"
+          - "OnePlus-Ace2V-5.10.226 (A15)"
+          - "OnePlus-Ace3-5.15.149 (A15)"
+          - "OnePlus-Ace3-5.15.167 (A15)"
+          - "OnePlus-Ace3-Pro-6.1.118 (A15)"
+          - "OnePlus-Ace3-Pro-6.1.75 (A15)"
+          - "OnePlus-Ace3V-6.1.118 (A15)"
+          - "OnePlus-Ace3V-6.1.75 (A15)"
+          - "OnePlus-Ace5-6.1.118 (A15)"
+          - "OnePlus-Ace5-6.1.75 (A15)"
+          - "OnePlus-Ace5-Pro-6.6.30 (A15)"
+          - "OnePlus-Ace5-Pro-6.6.66 (A15)"
+          - "OnePlus-Ace5-RACE-6.1.115 (A15)"
+          - "OnePlus-Ace5-Ultra-6.6.50 (A15)"
+          - "OnePlus-Ace5-Ultra-6.6.89 (A15)"
+          - "OnePlus-Ace-5.10.209 (A15)"
+          - "OnePlus-Ace-5.10.226 (A15)"
+          - "OnePlus-Ace-5.10.236 (A15)"
+          - "OnePlus-Ace-RACE-5.10.209 (A15)"
+          - "OnePlus-Ace-RACE-5.10.226 (A15)"
+          - "OnePlus-Ace-RACE-5.10.236 (A15)"
+          - "OnePlus-Nord3-5.10.209 (A15)"
+          - "OnePlus-Nord3-5.10.226 (A15)"
+          - "OnePlus-Nord4-6.1.118 (A15)"
+          - "OnePlus-Nord4-6.1.75 (A15)"
+          - "OnePlus-Nord4-CE-5.15.149 (A15)"
+          - "OnePlus-Nord4-CE-5.15.167 (A15)"
+          - "OnePlus-Nord4-CE-5.15.180 (A15)"
+          - "OnePlus-Nord5-6.1.118 (A15)"
+          - "OnePlus-Nord-CE5-6.1.115 (A15)"
+          - "OnePlus-Nord-CE4Lite-6.1.75 (A15)"
+          - "OnePlus-Nord-N30-SE-6.6.30 (A15)"
+          - "OnePlus-Open-5.15.149 (A15)"
+          - "OnePlus-Open-5.15.167 (A15)"
+          - "OnePlus-Pad2-Pro-6.6.30 (A15)"
+          - "OnePlus-Pad2-Pro-6.6.57 (A15)"
+          - "OnePlus-Pad2-SM8650-6.1.118 (A15)"
+          - "OnePlus-Pad2-SM8650-6.1.75 (A15)"
+          - "OnePlus-Pad3-MT6897-6.1.128 (A15)"
+          - "OnePlus-Pad3-MT6897-6.1.75 (A15)"
+          - "OnePlus-Pad3-SM8750-6.6.30 (A15)"
+          - "OnePlus-Pad3-SM8750-6.6.57 (A15)"
+          - "OnePlus-Pad-Lite-5.10.226 (A15)"
+          - "OnePlus-Pad-MT6983-5.10.209 (A15)"
+          - "OnePlus-Pad-MT6983-5.10.226 (A15)"
+          - "OnePlus-Pad-Pro-6.1.118 (A15)"
+          - "OnePlus-Pad-Pro-6.1.75 (A15)"
+          - "OnePlus-10Pro-5.10.209 (A15)"
+          - "OnePlus-10Pro-5.10.226 (A15)"
+          - "OnePlus-10R-5.10.209 (A15)"
+          - "OnePlus-10T-5.10.209 (A15)"
+          - "OnePlus-10T-5.10.226 (A15)"
+          - "OnePlus-10T-5.10.236 (A15)"
+          - "OnePlus-11-5.15.149 (A15)"
+          - "OnePlus-11-5.15.167 (A15)"
+          - "OnePlus-11R-5.10.209 (A15)"
+          - "OnePlus-11R-5.10.226 (A15)"
+          - "OnePlus-12-6.1.118 (A15)"
+          - "OnePlus-12-6.1.75 (A15)"
+          - "OnePlus-12R-5.15.149 (A15)"
+          - "OnePlus-12R-5.15.167 (A15)"
+          - "OnePlus-13-6.6.30 (A15)"
+          - "OnePlus-13-CPH-6.6.56 (A15)"
+          - "OnePlus-13-CPH-6.6.89 (A15)"
+          - "OnePlus-13-PJZ-6.6.66 (A15)"
+          - "OnePlus-13S-6.6.56 (A15)"
+          - "OnePlus-13T-6.6.56 (A15)"
+          - "OnePlus-13T-6.6.66 (A15)"
+          - "OnePlus-13R-6.1.118 (A15)"
+          - "OnePlus-13R-6.1.75 (A15)"
+      op_model_a16:
+        description: '选择要构建的设备（A16）'
+        required: false
+        type: choice
+        default: '不构建 (A16)'
+        options:
+          - '不构建 (A16)'
+          - "OnePlus-Ace2-5.10.236 (A16)"
+          - "OnePlus-Ace2-Pro-5.15.180 (A16)"
+          - "OnePlus-Ace2V-5.10.236 (A16)"
+          - "OnePlus-Ace3-5.15.167 (A16)"
+          - "OnePlus-Ace3-5.15.180 (A16)"
+          - "OnePlus-Ace3-Pro-6.1.118 (A16)"
+          - "OnePlus-Ace3-Pro-6.1.141 (A16)"
+          - "OnePlus-Ace3V-6.1.118 (A16)"
+          - "OnePlus-Ace3V-6.1.141 (A16)"
+          - "OnePlus-Ace5-6.1.118 (A16)"
+          - "OnePlus-Ace5-6.1.141 (A16)"
+          - "OnePlus-Ace5-Pro-6.6.118 (A16)"
+          - "OnePlus-Ace5-Pro-6.6.89 (A16)"
+          - "OnePlus-Ace5-RACE-6.1.134 (A16)"
+          - "OnePlus-Ace5-RACE-6.1.157 (A16)"
+          - "OnePlus-Ace5-Ultra-6.6.118 (A16)"
+          - "OnePlus-Ace5-Ultra-6.6.89 (A16)"
+          - "OnePlus-Ace6-6.6.118 (A16)"
+          - "OnePlus-Ace6-6.6.89 (A16)"
+          - "OnePlus-Ace6-Ultra-6.12.58 (A16)"
+          - "OnePlus-Ace6T-6.12.38 (A16)"
+          - "OnePlus-N6-5.15.180 (A16)"
+          - "OnePlus-Nord3-5.10.236 (A16)"
+          - "OnePlus-Nord4-6.1.118 (A16)"
+          - "OnePlus-Nord4-6.1.141 (A16)"
+          - "OnePlus-Nord4-CE-5.15.180 (A16)"
+          - "OnePlus-Nord5-6.1.118 (A16)"
+          - "OnePlus-Nord5-6.1.141 (A16)"
+          - "OnePlus-Nord6-6.6.89 (A16)"
+          - "OnePlus-Nord-CE5-6.1.134 (A16)"
+          - "OnePlus-Nord-CE5-6.1.157 (A16)"
+          - "OnePlus-Nord-CE4Lite-6.1.141 (A16)"
+          - "OnePlus-Nord-CE6Lite-6.1.134 (A16)"
+          - "OnePlus-Open-5.15.167 (A16)"
+          - "OnePlus-Open-5.15.180 (A16)"
+          - "OnePlus-Pad2-MT6991-6.6.89 (A16)"
+          - "OnePlus-Pad2-Pro-6.6.118 (A16)"
+          - "OnePlus-Pad2-Pro-6.6.89 (A16)"
+          - "OnePlus-Pad2-SM8650-6.1.118 (A16)"
+          - "OnePlus-Pad3-MT6897-6.1.134 (A16)"
+          - "OnePlus-Pad3-Pro-6.12.58 (A16)"
+          - "OnePlus-Pad3-SM8750-6.6.118 (A16)"
+          - "OnePlus-Pad3-SM8750-6.6.89 (A16)"
+          - "OnePlus-Pad4-6.12.58 (A16)"
+          - "OnePlus-Pad-GO2-6.1.134 (A16)"
+          - "OnePlus-Pad-Lite-6.12.23 (A16)"
+          - "OnePlus-Pad-MT6983-5.10.236 (A16)"
+          - "OnePlus-Pad-Pro-6.1.118 (A16)"
+          - "OnePlus-Turbo6-6.6.89 (A16)"
+          - "OnePlus-Turbo6V-6.1.118 (A16)"
+          - "OnePlus-Turbo6V-6.1.141 (A16)"
+          - "OnePlus-Turbo6X-6.1.141 (A16)"
+          - "OnePlus-10Pro-5.10.236 (A16)"
+          - "OnePlus-11-5.15.167 (A16)"
+          - "OnePlus-11-5.15.180 (A16)"
+          - "OnePlus-11R-5.10.236 (A16)"
+          - "OnePlus-12-6.1.118 (A16)"
+          - "OnePlus-12-6.1.141 (A16)"
+          - "OnePlus-12R-5.15.167 (A16)"
+          - "OnePlus-12R-5.15.180 (A16)"
+          - "OnePlus-13-6.6.118 (A16)"
+          - "OnePlus-13-6.6.89 (A16)"
+          - "OnePlus-13S-6.6.89 (A16)"
+          - "OnePlus-13T-6.6.118 (A16)"
+          - "OnePlus-13T-6.6.89 (A16)"
+          - "OnePlus-13R-6.1.118 (A16)"
+          - "OnePlus-13R-6.1.141 (A16)"
+          - "OnePlus-15-6.12.23 (A16)"
+          - "OnePlus-15T-6.12.38 (A16)"
+          - "OnePlus-15R-6.12.38 (A16)"
+      ksu_variant:
+        description: 'KernelSU 变体'
+        required: true
+        type: choice
+        options:
+          - SukiSU
+          - BakaSU
+        default: BakaSU
+      custom_version:
+        description: '自定义版本名（可选）'
+        required: false
+        type: string
+        default: ''
+      build_timestamp:
+        description: '自定义构建时间（留空=自动获取当前北京时间）（示例 Mon Jul 20 18:34:35 UTC 2026）'
+        required: false
+        type: string
+        default: ''
+      use_kpm:
+        description: 'KPM 功能（仅SukiSU支持）'
+        required: true
+        type: choice
+        default: 'disabled (关闭)'
+        options:
+          - 'disabled (关闭)'
+          - 'enabled (开启)'
+          - 'patched (开启并修补)'
+      enable_droidspaces_ntsync:
+        description: '启用 Droidspaces 容器 & NTSync（默认关闭）'
+        required: false
+        type: boolean
+        default: false
+      optimize_level:
+        description: '编译器优化级别'
+        required: true
+        type: choice
+        options:
+          - O2
+          - O3
+        default: O2
+
+jobs:
+  set-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      model: ${{ steps.set-matrix.outputs.model }}
+      model_display: ${{ steps.set-matrix.outputs.model_display }}
+    steps:
+      - name: 📥 Checkout Code (to access configs/)
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            configs/
+          sparse-checkout-cone-mode: false
+
+      - name: 🔍 Generate single-device matrix
+        id: set-matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::group::Matrix generation"
+
+          # 从 choice 值 "OnePlus xxx (Axx)" 解析出显示名与 os_version（A15→a15 / A16→a16）
+          # 显示名是扁平化设备名（OnePlus-ACE2Pro），需遍历 configs/ 目录重算每个 stem
+          # 的扁平名来匹配真实配置文件（与 zip 命名规则一致）
+          sel_a15='${{ inputs.op_model_a15 }}'
+          sel_a16='${{ inputs.op_model_a16 }}'
+          selected=""
+          if [ -n "$sel_a15" ] && [ "$sel_a15" != "不构建 (A15)" ]; then
+            selected="$sel_a15"
+          fi
+          if [ -n "$sel_a16" ] && [ "$sel_a16" != "不构建 (A16)" ]; then
+            if [ -n "$selected" ]; then
+              echo "::error::A15 与 A16 只能选择一个设备"
+              exit 1
+            fi
+            selected="$sel_a16"
+          fi
+          if [ -z "$selected" ]; then
+            echo "::error::请在 A15 或 A16 中选择一个要构建的设备"
+            exit 1
+          fi
+          model_display="${selected% *}"
+          os_version="${selected##* (}"
+          os_version="${os_version%)}"
+          os_dir=$(echo "$os_version" | tr '[:upper:]' '[:lower:]')
+          echo "Selected: display=$model_display os_version=$os_version"
+
+          flat_name() {
+            local stem="$1" dev="$1" ver="" flat
+            # Split the trailing kernel version (X.Y.Z) so its hyphen survives
+            if [[ "$stem" =~ ^(.+)-([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+              dev="${BASH_REMATCH[1]}"
+              ver="${BASH_REMATCH[2]}"
+            fi
+              case "$dev" in
+                OP-ACE) flat="OnePlus-Ace" ;;
+                OP-ACE-2) flat="OnePlus-Ace2" ;;
+                OP-ACE-2-PRO) flat="OnePlus-Ace2-Pro" ;;
+                OP-ACE-2V) flat="OnePlus-Ace2V" ;;
+                OP-ACE-3) flat="OnePlus-Ace3" ;;
+                OP-ACE-3-PRO) flat="OnePlus-Ace3-Pro" ;;
+                OP-ACE-3V) flat="OnePlus-Ace3V" ;;
+                OP-ACE-5) flat="OnePlus-Ace5" ;;
+                OP-ACE-5-PRO) flat="OnePlus-Ace5-Pro" ;;
+                OP-ACE-5-RACE) flat="OnePlus-Ace5-RACE" ;;
+                OP-ACE-5-ULTRA) flat="OnePlus-Ace5-Ultra" ;;
+                OP-ACE-6) flat="OnePlus-Ace6" ;;
+                OP-ACE-6-ULTRA) flat="OnePlus-Ace6-Ultra" ;;
+                OP-ACE-6T) flat="OnePlus-Ace6T" ;;
+                OP-ACE-RACE) flat="OnePlus-Ace-RACE" ;;
+                OP-N6) flat="OnePlus-N6" ;;
+                OP-NORD-3) flat="OnePlus-Nord3" ;;
+                OP-NORD-4) flat="OnePlus-Nord4" ;;
+                OP-NORD-4-CE) flat="OnePlus-Nord4-CE" ;;
+                OP-NORD-5) flat="OnePlus-Nord5" ;;
+                OP-NORD-6) flat="OnePlus-Nord6" ;;
+                OP-NORD-CE-5) flat="OnePlus-Nord-CE5" ;;
+                OP-NORD-CE4-LITE) flat="OnePlus-Nord-CE4Lite" ;;
+                OP-NORD-CE6-LITE) flat="OnePlus-Nord-CE6Lite" ;;
+                OP-NORD-N30-SE) flat="OnePlus-Nord-N30-SE" ;;
+                OP-OPEN) flat="OnePlus-Open" ;;
+                OP-PAD-2-MT6991) flat="OnePlus-Pad2-MT6991" ;;
+                OP-PAD-2-PRO) flat="OnePlus-Pad2-Pro" ;;
+                OP-PAD-2-SM8650) flat="OnePlus-Pad2-SM8650" ;;
+                OP-PAD-3-MT6897) flat="OnePlus-Pad3-MT6897" ;;
+                OP-PAD-3-PRO) flat="OnePlus-Pad3-Pro" ;;
+                OP-PAD-3-SM8750) flat="OnePlus-Pad3-SM8750" ;;
+                OP-PAD-4) flat="OnePlus-Pad4" ;;
+                OP-PAD-GO-2) flat="OnePlus-Pad-GO2" ;;
+                OP-PAD-LITE) flat="OnePlus-Pad-Lite" ;;
+                OP-PAD-MT6983) flat="OnePlus-Pad-MT6983" ;;
+                OP-PAD-PRO) flat="OnePlus-Pad-Pro" ;;
+                OP-TURBO-6) flat="OnePlus-Turbo6" ;;
+                OP-TURBO-6V) flat="OnePlus-Turbo6V" ;;
+                OP-TURBO-6X) flat="OnePlus-Turbo6X" ;;
+                OP10pro) flat="OnePlus-10Pro" ;;
+                OP10r) flat="OnePlus-10R" ;;
+                OP10t) flat="OnePlus-10T" ;;
+                OP11) flat="OnePlus-11" ;;
+                OP11r) flat="OnePlus-11R" ;;
+                OP12) flat="OnePlus-12" ;;
+                OP12r) flat="OnePlus-12R" ;;
+                OP13) flat="OnePlus-13" ;;
+                OP13-CPH) flat="OnePlus-13-CPH" ;;
+                OP13-PJZ) flat="OnePlus-13-PJZ" ;;
+                OP13S) flat="OnePlus-13S" ;;
+                OP13T) flat="OnePlus-13T" ;;
+                OP13r) flat="OnePlus-13R" ;;
+                OP15) flat="OnePlus-15" ;;
+                OP15T) flat="OnePlus-15T" ;;
+                OP15r) flat="OnePlus-15R" ;;
+                *) flat="$dev" ;;
+              esac
+              echo "$flat${ver:+-$ver}"
+          }
+
+          config_file=""
+          for f in configs/${os_dir}/*.json; do
+            [ -e "$f" ] || continue
+            stem=$(basename "$f" .json)
+            if [ "$(flat_name "$stem")" = "$model_display" ]; then
+              config_file="$f"
+              model="$stem"
+              break
+            fi
+          done
+
+          if [ -z "$config_file" ]; then
+            echo "::error::No config matched display name: $model_display (os: $os_dir)"
+            exit 1
+          fi
+          echo "Matched config: $config_file"
+
+          device=$(jq -c '.' "$config_file")
+
+          # Droidspaces & NTSync 合并开关：默认关闭，不勾选时强制关闭两者
+          dn=false
+          [ "${{ inputs.enable_droidspaces_ntsync }}" = "true" ] && dn=true
+          device=$(echo "$device" | jq -c --argjson dn "$dn" '.ds = $dn | .ntsync = $dn')
+          echo "Droidspaces/NTSync override: $dn"
+
+          # KernelSU 变体（固定默认分支：SukiSU→builtin, BakaSU→main）
+          ksu_variant='${{ inputs.ksu_variant }}'
+          case "$ksu_variant" in
+            SukiSU)
+              ksu_hash="builtin"
+              KSU_REPO="SukiSU-Ultra/SukiSU-Ultra"
+              ;;
+            BakaSU)
+              ksu_hash="main"
+              KSU_REPO="Baka-SU/BakaSU"
+              ;;
+            *)
+              echo "::error::Unsupported KernelSU variant: $ksu_variant"
+              exit 1
+              ;;
+          esac
+
+          # 校验 ref 存在（40 位 commit 直接放行）
+          if [[ ! "$ksu_hash" =~ ^[0-9a-f]{40}$ ]]; then
+            if ! git ls-remote "https://github.com/${KSU_REPO}.git" "refs/heads/$ksu_hash" "refs/tags/$ksu_hash" | grep -q .; then
+              echo "::error::Ref '$ksu_hash' does not exist in $KSU_REPO"
+              exit 1
+            fi
+          fi
+          echo "KSU: $ksu_variant @ $ksu_hash ($KSU_REPO)"
+
+          matrix=$(jq -nc --argjson dev "$device" --arg type "$ksu_variant" --arg hash "$ksu_hash" \
+            '[ $dev + {ksu_type: $type, ksu_hash: $hash, ksu_resolved_hash: $hash} ]')
+
+          echo "✅ Single device matrix ready"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "model=$model" >> "$GITHUB_OUTPUT"
+          echo "model_display=$model_display" >> "$GITHUB_OUTPUT"
+          echo "::endgroup::"
+
+      - name: 📊 Build plan summary
+        run: |
+          {
+            echo "## 🎯 Custom Kernel Build Plan"
+            echo ""
+            echo "| Setting | Value |"
+            echo "|---------|-------|"
+            echo "| Device | \`${{ steps.set-matrix.outputs.model_display }}\` |"
+            echo "| KernelSU | \`${{ inputs.ksu_variant }}\` @ \`${{ inputs.ksu_variant == 'SukiSU' && 'builtin' || 'main' }}\` |"
+            echo "| KPM | \`${{ inputs.use_kpm }}\` |"
+            echo "| Optimization | \`${{ inputs.optimize_level }}\` |"
+            echo "| Droidspaces & NTSync | ${{ inputs.enable_droidspaces_ntsync && '✅ enabled' || '❌ disabled' }} |"
+            echo "| Custom version | \`${{ inputs.custom_version || 'auto (-<android>-<uname>)' }}\` |"
+            echo "| Build timestamp | \`${{ inputs.build_timestamp || 'auto (current build time)' }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  prepare_ccache:
+    name: Prepare ccache binary (download once)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download custom ccache once
+        run: |
+          set -uo pipefail
+          echo "::group::Download ccache"
+          url="https://raw.githubusercontent.com/WildKernels/kernel_patches/refs/heads/main/ccache/ccache-x86-64"
+          ok=0
+          for attempt in 1 2 3 4 5 6; do
+            if curl -LfsS --connect-timeout 30 --max-time 120 -H "User-Agent: Mozilla/5.0" "$url" -o ccache && [ -s ccache ]; then
+              ok=1; break
+            fi
+            echo "attempt $attempt failed (GitHub raw 504/throttle); backing off..."
+            sleep $(( attempt * 5 + RANDOM % 6 ))
+          done
+          if [ "$ok" = 1 ]; then
+            echo "✅ downloaded ccache once for all matrix jobs"
+          else
+            echo "::warning::custom ccache download failed; matrix jobs will fall back to the apt ccache"
+            rm -f ccache
+          fi
+          echo "::endgroup::"
+      - name: Upload ccache artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ccache-binary
+          path: ccache
+          retention-days: 1
+          if-no-files-found: warn
+
+  build:
+    name: build (${{ needs.set-matrix.outputs.model_display }}, ${{ inputs.ksu_variant }})
+    needs: [set-matrix, prepare_ccache]
+    if: |
+      !cancelled() &&
+      needs.set-matrix.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Install Minimal Dependencies
+        run: |
+          set -euo pipefail
+          echo "::group::Install dependencies"
+          sudo apt-get -o Acquire::Retries=3 update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            git curl ca-certificates build-essential clang lld flex bison \
+            libelf-dev libssl-dev libncurses-dev zlib1g-dev liblz4-tool \
+            libxml2-utils rsync unzip dwarves file python3 ccache jq bc dos2unix kmod libdw-dev elfutils pigz
+          sudo apt-get clean
+          echo "✅ Dependencies installed"
+          echo "::endgroup::"
+
+      - name: Get prebuilt ccache (downloaded once by prepare_ccache)
+        uses: actions/download-artifact@v8
+        with:
+          name: ccache-binary
+          path: ccache-dl
+        continue-on-error: true
+
+      - name: Install ccache (ECS by cctv18, shared via artifact)
+        run: |
+          set -uo pipefail
+          echo "::group::Install ccache"
+          if [ -s ccache-dl/ccache ]; then
+            sudo cp -f ccache-dl/ccache /usr/bin/ccache
+            sudo chmod +x /usr/bin/ccache
+            echo "✅ installed custom ccache from shared artifact"
+          else
+            echo "::warning::shared ccache artifact unavailable; using apt ccache"
+          fi
+          rm -rf ccache-dl
+          echo "[DEBUG] Ccache version : $(ccache --version | head -1)"
+          echo "::endgroup::"
+
+      - name: ♻️ Configure ccache (bounded)
+        run: |
+          echo "::group::Configure ccache environment"
+          set -euo pipefail
+          if command -v ccache >/devull 2>&1; then
+            CACHE_DIR="${{ github.workspace }}/.ccache"
+            CCACHE_LOG="${{ github.workspace }}/ccache.log"
+            mkdir -p "$CACHE_DIR"
+
+            SETTINGS=(
+              "CCACHE_DIR=$CACHE_DIR"
+              "CCACHE_MAXSIZE=12G"
+              "CCACHE_COMPILERCHECK=content"
+              "CCACHE_BASEDIR=${GITHUB_WORKSPACE}"
+              "CCACHE_NOHASHDIR=true"
+              "CCACHE_IGNOREOPTIONS=--sysroot*"
+              "CCACHE_COMPRESSION=true"
+              "CCACHE_COMPRESSION_LEVEL=3"
+              "CCACHE_DIRECT=true"
+              "CCACHE_FILE_CLONE=true"
+              "CCACHE_INODE_CACHE=true"
+              "CCACHE_IS_KERNEL_COMPILING=true"
+              "CCACHE_UMASK=002"
+              "CCACHE_LOGFILE=${CCACHE_LOG}"
+              "CCACHE_SLOPPINESS=file_macro,time_macros,include_file_mtime,include_file_ctime,pch_defines,system_headers,locale"
+            )
+
+            for setting in "${SETTINGS[@]}"; do
+              export "$setting"
+              echo "$setting" >> "$GITHUB_ENV"
+            done
+
+            if ccache --help 2>&1 | grep -q 'depend_mode'; then
+              export CCACHE_DEPEND=true
+              echo "CCACHE_DEPEND=true" >> "$GITHUB_ENV"
+            fi
+
+            echo "✅ ccache configured successfully"
+          else
+            echo "ccache not found, skipping configuration."
+          fi
+          echo "::endgroup::"
+
+      - name: 🧹 Prepare op_config_json (without KSU fields)
+        id: prepare_config
+        shell: bash
+        run: |
+          echo "config_json=$(jq -nc --argjson m '${{ toJSON(fromJSON(needs.set-matrix.outputs.matrix)[0]) }}' '$m | del(.ksu_type, .ksu_hash, .ksu_resolved_hash)')" >> "$GITHUB_OUTPUT"
+
+      - name: 🔨 Build Kernel
+        id: build
+        uses: ./.github/actions/build-kernel
+        with:
+          op_config_json: ${{ steps.prepare_config.outputs.config_json }}
+          ksu_type: ${{ fromJSON(needs.set-matrix.outputs.matrix)[0].ksu_type }}
+          ksu_branch_or_hash: ${{ fromJSON(needs.set-matrix.outputs.matrix)[0].ksu_resolved_hash }}
+          use_kpm: ${{ inputs.use_kpm }}
+          custom_version: ${{ inputs.custom_version }}
+          optimize_level: ${{ inputs.optimize_level }}
+          build_timestamp: ${{ inputs.build_timestamp }}
+          cache_stagger: false
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📊 Build statistics
+        id: build-stat
+        if: always()
+        run: |
+          echo "::group::Build Statistics"
+          echo "Device: ${{ needs.set-matrix.outputs.model_display }}"
+          echo "KernelSU: ${{ inputs.ksu_variant }}"
+          echo "KPM: ${{ inputs.use_kpm }}"
+          if [ "${{ steps.build.outcome }}" = "success" ]; then
+            echo "✅ Build completed successfully"
+            echo "  - Kernel: ${{ steps.build.outputs.kernel_version }}"
+            echo "  - KSU: v${{ steps.build.outputs.ksu_version }}"
+            echo "  - Build time: ${{ steps.build.outputs.build_time }}s"
+            echo "  - Image SHA256: ${{ steps.build.outputs.image_sha256 }}"
+            echo "  - AnyKernel3 ZIP: ${{ steps.build.outputs.zip_name }}"
+          else
+            echo "❌ Build failed"
+          fi
+          echo "::endgroup::"
+
+      - name: 🧹 Final cleanup and space report
+        if: always()
+        run: |
+          echo "::group::Cleanup"
+          sudo rm -rf "$GITHUB_WORKSPACE/out" || true
+          sudo rm -rf "$GITHUB_WORKSPACE/build" || true
+          sudo rm -rf "$GITHUB_WORKSPACE/kernel/out" || true
+          sudo rm -rf "$GITHUB_WORKSPACE/.repo" || true
+          sudo rm -rf /tmp/* || true
+          echo "💽 Final disk usage:"
+          df -h /
+          echo "::endgroup::"
+
+  get-manager:
+    name: get-manager (${{ inputs.ksu_variant }})
+    needs: [set-matrix]
+    uses: ./.github/workflows/get-manager.yml
+    with:
+      ksu_variant: ${{ inputs.ksu_variant }}

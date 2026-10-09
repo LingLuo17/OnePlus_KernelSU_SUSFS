@@ -28,63 +28,63 @@ on:
           - android13-5.15
           - android12-5.10
           # OnePlus Phones
-          - OP15T
-          - OP15r
-          - OP15
-          - OP13
-          - OP13-CPH
-          - OP13-PJZ
-          - OP13r
-          - OP13S
-          - OP13T
-          - OP12
-          - OP12r
-          - OP11
-          - OP11r
-          - OP10pro
-          - OP10t
-          - OP10r
+          - OnePlus15T
+          - OnePlus15r
+          - OnePlus15
+          - OnePlus13
+          - OnePlus13-CPH
+          - OnePlus13-PJZ
+          - OnePlus13r
+          - OnePlus13S
+          - OnePlus13T
+          - OnePlus12
+          - OnePlus12r
+          - OnePlus11
+          - OnePlus11r
+          - OnePlus10pro
+          - OnePlus10t
+          - OnePlus10r
           # OnePlus Nord Series
-          - OP-NORD-6
-          - OP-NORD-5
-          - OP-NORD-4
-          - OP-NORD-3
-          - OP-NORD-4-CE
-          - OP-NORD-CE-5
-          - OP-NORD-CE4-LITE
-          - OP-NORD-N30-SE
+          - OnePlus-Nord6
+          - OnePlus-Nord5
+          - OnePlus-Nord4
+          - OnePlus-Nord3
+          - OnePlus-Nord4-CE
+          - OnePlus-Nord-CE5
+          - OnePlus-Nord-CE4Lite
+          - OnePlus-Nord-N30-SE
           # OnePlus Ace Series
-          - OP-TURBO-6V
-          - OP-TURBO-6
-          - OP-ACE-6T
-          - OP-ACE-6
-          - OP-ACE-6-ULTRA
-          - OP-ACE-5-PRO
-          - OP-ACE-5
-          - OP-ACE-5-ULTRA
-          - OP-ACE-5-RACE
-          - OP-ACE-3-PRO
-          - OP-ACE-3V
-          - OP-ACE-3
-          - OP-ACE-2-PRO
-          - OP-ACE-2
-          - OP-ACE-2V
-          - OP-ACE-RACE
-          - OP-ACE
+          - OnePlus-Turbo6V
+          - OnePlus-Turbo6
+          - OnePlus-Ace6T
+          - OnePlus-Ace6
+          - OnePlus-Ace6-Ultra
+          - OnePlus-Ace5-Pro
+          - OnePlus-Ace5
+          - OnePlus-Ace5-Ultra
+          - OnePlus-Ace5-RACE
+          - OnePlus-Ace3-Pro
+          - OnePlus-Ace3V
+          - OnePlus-Ace3
+          - OnePlus-Ace2-Pro
+          - OnePlus-Ace2
+          - OnePlus-Ace2V
+          - OnePlus-Ace-RACE
+          - OnePlus-Ace
           # OnePlus Tablets & Others
-          - OP-OPEN
-          - OP-PAD-4
-          - OP-PAD-3-PRO
-          - OP-PAD-3-SM8750
-          - OP-PAD-3-MT6897
-          - OP-PAD-2-PRO
-          - OP-PAD-2-SM8650
-          - OP-PAD-2-MT6991
-          - OP-PAD-PRO
-          - OP-PAD-MT6983
-          - OP-PAD-LITE
+          - OnePlus-Open
+          - OnePlus-Pad4
+          - OnePlus-Pad3-Pro
+          - OnePlus-Pad3-SM8750
+          - OnePlus-Pad3-MT6897
+          - OnePlus-Pad2-Pro
+          - OnePlus-Pad2-SM8650
+          - OnePlus-Pad2-MT6991
+          - OnePlus-Pad-Pro
+          - OnePlus-Pad-MT6983
+          - OnePlus-Pad-Lite
           - OP-PAD-GO
-          - OP-PAD-GO-2
+          - OnePlus-Pad-GO2
       
       cache_pattern:
         type: choice
@@ -464,6 +464,12 @@ jobs:
           script: |
             const { owner, repo } = context.repo;
             const deviceFilter = '${{ inputs.device_filter }}';
+
+            // Map flattened display names back to config stems (cache keys
+            // are keyed by the original OP- style stem)
+            const FLAT_TO_STEM = {"OnePlus-Ace": "OP-ACE", "OnePlus-Ace2": "OP-ACE-2", "OnePlus-Ace2-Pro": "OP-ACE-2-PRO", "OnePlus-Ace2V": "OP-ACE-2V", "OnePlus-Ace3": "OP-ACE-3", "OnePlus-Ace3-Pro": "OP-ACE-3-PRO", "OnePlus-Ace3V": "OP-ACE-3V", "OnePlus-Ace5": "OP-ACE-5", "OnePlus-Ace5-Pro": "OP-ACE-5-PRO", "OnePlus-Ace5-RACE": "OP-ACE-5-RACE", "OnePlus-Ace5-Ultra": "OP-ACE-5-ULTRA", "OnePlus-Ace6": "OP-ACE-6", "OnePlus-Ace6-Ultra": "OP-ACE-6-ULTRA", "OnePlus-Ace6T": "OP-ACE-6T", "OnePlus-Ace-RACE": "OP-ACE-RACE", "OnePlus-N6": "OP-N6", "OnePlus-Nord3": "OP-NORD-3", "OnePlus-Nord4": "OP-NORD-4", "OnePlus-Nord4-CE": "OP-NORD-4-CE", "OnePlus-Nord5": "OP-NORD-5", "OnePlus-Nord6": "OP-NORD-6", "OnePlus-Nord-CE5": "OP-NORD-CE-5", "OnePlus-Nord-CE4Lite": "OP-NORD-CE4-LITE", "OnePlus-Nord-CE6Lite": "OP-NORD-CE6-LITE", "OnePlus-Nord-N30-SE": "OP-NORD-N30-SE", "OnePlus-Open": "OP-OPEN", "OnePlus-Pad2-MT6991": "OP-PAD-2-MT6991", "OnePlus-Pad2-Pro": "OP-PAD-2-PRO", "OnePlus-Pad2-SM8650": "OP-PAD-2-SM8650", "OnePlus-Pad3-MT6897": "OP-PAD-3-MT6897", "OnePlus-Pad3-Pro": "OP-PAD-3-PRO", "OnePlus-Pad3-SM8750": "OP-PAD-3-SM8750", "OnePlus-Pad4": "OP-PAD-4", "OnePlus-Pad-GO2": "OP-PAD-GO-2", "OnePlus-Pad-Lite": "OP-PAD-LITE", "OnePlus-Pad-MT6983": "OP-PAD-MT6983", "OnePlus-Pad-Pro": "OP-PAD-PRO", "OnePlus-Turbo6": "OP-TURBO-6", "OnePlus-Turbo6V": "OP-TURBO-6V", "OnePlus-Turbo6X": "OP-TURBO-6X", "OnePlus10pro": "OP10pro", "OnePlus10r": "OP10r", "OnePlus10t": "OP10t", "OnePlus11": "OP11", "OnePlus11r": "OP11r", "OnePlus12": "OP12", "OnePlus12r": "OP12r", "OnePlus13": "OP13", "OnePlus13-CPH": "OP13-CPH", "OnePlus13-PJZ": "OP13-PJZ", "OnePlus13S": "OP13S", "OnePlus13T": "OP13T", "OnePlus13r": "OP13r", "OnePlus15": "OP15", "OnePlus15T": "OP15T", "OnePlus15r": "OP15r"}
+            const deviceStem = FLAT_TO_STEM[deviceFilter];
+
             const cachePattern = '${{ inputs.cache_pattern }}';
             const dryRun = '${{ inputs.dry_run }}' === 'true';
             const cacheAgeDays = parseInt('${{ inputs.cache_age_days }}');
@@ -517,12 +523,16 @@ jobs:
               const cacheDate = new Date(cache.created_at);
               const ageDays = Math.floor((new Date() - cacheDate) / (1000 * 60 * 60 * 24));
               
-              // Device filter logic
-              const deviceMatch = 
+              // Device filter logic (flattened name is mapped back to its stem)
+              const matchForms = [deviceFilter];
+              if (deviceStem) matchForms.push(deviceStem);
+              const deviceMatch =
                 deviceFilter === 'ALL' ||
-                cacheKey.includes(deviceFilter) ||
-                cacheKey.includes(`-${deviceFilter}-`) ||
-                cacheKey.startsWith(`${deviceFilter}-`);
+                deviceFilter.startsWith('android') ||
+                matchForms.some(f =>
+                  cacheKey.includes(f) ||
+                  cacheKey.includes(`-${f}-`) ||
+                  cacheKey.startsWith(`${f}-`));
               
               if (!deviceMatch) {
                 return { delete: false, reason: 'device_filter' };
@@ -1128,7 +1138,7 @@ jobs:
           # Clean specific device
           gh workflow run cleanup.yml \
             -f cleanup_type=cache_only \
-            -f device_filter=OP13 \
+            -f device_filter=OnePlus13 \
             -f cache_pattern=ccache_only
           ```
           
@@ -1175,7 +1185,7 @@ jobs:
           # Clean specific phone model
           gh workflow run cleanup.yml \
             -f cleanup_type=cache_only \
-            -f device_filter=OP13 \
+            -f device_filter=OnePlus13 \
             -f cache_pattern=all_caches
           ```
           

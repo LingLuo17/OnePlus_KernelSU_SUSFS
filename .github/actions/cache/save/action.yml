@@ -35,6 +35,11 @@ inputs:
     required: false
     type: boolean
     default: false
+  stagger:
+    description: 'Randomly delay upload start to avoid contention in large matrices'
+    required: false
+    type: boolean
+    default: false
 
 runs:
   using: 'composite'
@@ -47,6 +52,13 @@ runs:
       run: |
         # Archive, Split, and Upload Cache
         if [ "${{ inputs.debug }}" = "true" ]; then set -x; fi
+
+        # Spread concurrent uploads from large matrices
+        if [ "${{ inputs.stagger }}" = "true" ]; then
+          STAGGER_DELAY=$((RANDOM % 1200))
+          echo "Staggering cache upload by $((STAGGER_DELAY / 60))m $((STAGGER_DELAY % 60))s"
+          sleep "$STAGGER_DELAY"
+        fi
         
         if [ "${{ inputs.working_dir }}" != "" ]; then 
           cd "${{ inputs.working_dir }}"
@@ -130,24 +142,25 @@ runs:
           
           upload_with_retry() {
             local file=$1
-            local max_attempts=3
+            local max_attempts=6
             for ((i=1; i<=max_attempts; i++)); do
               echo "  Attempt $i for $file..."
               
               if [ "${{ inputs.debug }}" = "true" ]; then
-                if timeout 10m gh release upload "$TAG_NAME" "$file" --clobber --repo "$TARGET_REPO"; then
+                if timeout 30m gh release upload "$TAG_NAME" "$file" --clobber --repo "$TARGET_REPO"; then
                   echo "  Successfully uploaded $file"
                   return 0
                 fi
               else
-                if timeout 10m gh release upload "$TAG_NAME" "$file" --clobber --repo "$TARGET_REPO" > /dev/null 2>&1; then
+                # Keep stderr visible so upload failures are diagnosable
+                if timeout 30m gh release upload "$TAG_NAME" "$file" --clobber --repo "$TARGET_REPO" > /dev/null; then
                   echo "  Successfully uploaded $file"
                   return 0
                 fi
               fi
               
               echo "  ⚠ Attempt $i failed or timed out. Retrying..."
-              sleep 5
+              sleep $((30 + RANDOM % 60))
             done
             return 1
           }
