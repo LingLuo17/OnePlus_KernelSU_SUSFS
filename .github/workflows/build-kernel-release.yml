@@ -706,6 +706,7 @@ jobs:
             echo ""
             echo "Outputs:"
             echo "  - Kernel: ${{ steps.build.outputs.kernel_version }}"
+            echo "  - Kernel release: ${{ steps.build.outputs.kernel_release }}"
             if [ "${{ matrix.ksu_type }}" = "BakaSU" ]; then
               echo "  - KSU BakaSU: v${{ steps.build.outputs.ksu_version }}"
             else

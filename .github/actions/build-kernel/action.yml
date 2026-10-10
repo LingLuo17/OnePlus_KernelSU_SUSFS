@@ -104,6 +104,9 @@ outputs:
   zip_name:
     description: 'Name of the generated flashable ZIP'
     value: ${{ steps.create_zip.outputs.zip_name }}
+  kernel_release:
+    description: 'Complete built kernel release string (uname -r tail), e.g. 6.6.30-android15-8-4k'
+    value: ${{ steps.create_zip.outputs.kernel_release }}
 
 runs:
   using: 'composite'
@@ -504,6 +507,63 @@ runs:
           exit 1
         fi
         
+        # KMI generation (the "8" in the stock release 6.6.30-android15-8-...) ships in
+        # build.config.common on OnePlusOSS trees (build.config.constants on some branches)
+        KMI_LINE=""
+        for f in "${CONFIG_FILES[@]}"; do
+          if [ -f "$f" ]; then
+            k=$(grep '^[[:space:]]*KMI_GENERATION=' "$f" || true)
+            if [ -n "$k" ]; then KMI_LINE="$k"; break; fi
+          fi
+        done
+        KMI_GENERATION="${KMI_LINE#*=}"
+        KMI_GENERATION="${KMI_GENERATION//[[:space:]]/}"
+        if [ -z "$KMI_GENERATION" ]; then
+          echo "::warning::KMI_GENERATION not found in build.config.common/build.config.constants; the kernel release will omit the KMI generation"
+        else
+          echo "✅ KMI generation: $KMI_GENERATION"
+        fi
+        
+        # Resolve the common-kernel source commit that OnePlus ships for this build
+        # (the "g<hash>" in the stock release 6.6.30-android15-8-g0261dbe3cf7e-ab...-4k).
+        # The manifest pins it either as a 40-char commit or as a branch to resolve.
+        MANIFEST_XML="$CONFIG_FOLDER/manifest.xml"
+        KPROJ_LINE=""
+        if [ -f "$MANIFEST_XML" ]; then
+          # project element owning a linkfile that lands at kernel_platform/common
+          # (closest <project> line above it), else the project whose path IS
+          # kernel_platform/common / common
+          KPROJ_LINE="$(grep -B3 'dest="kernel_platform/common"' "$MANIFEST_XML" | grep '<project ' | tail -n1 || true)"
+          [ -n "$KPROJ_LINE" ] || KPROJ_LINE="$(grep '<project .*path="kernel_platform/common"' "$MANIFEST_XML" | head -n1 || true)"
+          [ -n "$KPROJ_LINE" ] || KPROJ_LINE="$(grep '<project .*path="common"' "$MANIFEST_XML" | head -n1 || true)"
+        fi
+        KPROJ_NAME="$(printf '%s' "$KPROJ_LINE" | sed -n 's/.*[[:space:]]name="\([^"]*\)".*/\1/p')"
+        KPROJ_REV="$(printf '%s' "$KPROJ_LINE" | sed -n 's/.*[[:space:]]revision="\([^"]*\)".*/\1/p')"
+        KPROJ_REMOTE="$(printf '%s' "$KPROJ_LINE" | sed -n 's/.*[[:space:]]remote="\([^"]*\)".*/\1/p')"
+        KPROJ_FETCH="https://github.com/OnePlusOSS"
+        if [ -n "$KPROJ_REMOTE" ]; then
+          rf="$(grep "name=\"$KPROJ_REMOTE\"" "$MANIFEST_XML" | grep '<remote ' | sed -n 's/.*[[:space:]]fetch="\([^"]*\)".*/\1/p' | head -n1 || true)"
+          [ -n "$rf" ] && KPROJ_FETCH="${rf%/}"
+        fi
+        KERNEL_SRC_HASH12=""
+        if [ -n "$KPROJ_NAME" ] && [ -n "$KPROJ_REV" ]; then
+          if [[ "$KPROJ_REV" =~ ^[0-9a-f]{40}$ ]]; then
+            KERNEL_SRC_HASH12="${KPROJ_REV:0:12}"
+          else
+            full_sha="$(timeout 60 git ls-remote "${KPROJ_FETCH}/${KPROJ_NAME}.git" "$KPROJ_REV" 2>/dev/null | awk '{print $1}' | head -n1 || true)"
+            if [ ${#full_sha} -ge 12 ]; then
+              KERNEL_SRC_HASH12="${full_sha:0:12}"
+            fi
+          fi
+          if [ -n "$KERNEL_SRC_HASH12" ]; then
+            echo "✅ Kernel source commit: $KERNEL_SRC_HASH12 ($KPROJ_NAME @ $KPROJ_REV)"
+          else
+            echo "::warning::Could not resolve the common-kernel source commit ($KPROJ_NAME @ $KPROJ_REV); the kernel release will omit the g<hash>-ab<build> segment"
+          fi
+        else
+          echo "::warning::Common-kernel project not found in manifest.xml; the kernel release will omit the g<hash>-ab<build> segment"
+        fi
+        
         VERSION=$(grep '^VERSION *=' Makefile | awk '{print $3}')
         PATCHLEVEL=$(grep '^PATCHLEVEL *=' Makefile | awk '{print $3}')
         SUBLEVEL=$(grep '^SUBLEVEL *=' Makefile | awk '{print $3}')
@@ -518,6 +578,8 @@ runs:
           echo "KERNEL_VER=$VERSION.$PATCHLEVEL"
           echo "TKERNEL_VER=$FULL_VERSION"
           echo "KERNEL_FULL_VER=$ANDROID_VERSION-$FULL_VERSION"
+          echo "KERNEL_KMI_GENERATION=$KMI_GENERATION"
+          echo "KERNEL_SRC_HASH12=$KERNEL_SRC_HASH12"
           if [ "${{ env.OP_SUSFS }}" = true ]; then
             echo "SUSFS_KERNEL_BRANCH=gki-$ANDROID_VERSION-$VERSION.$PATCHLEVEL"
           fi
@@ -1952,17 +2014,37 @@ runs:
           CUSTOM_LOCALVERSION="${CLEAN_VERSION}"
           echo "Custom version name: $CUSTOM_LOCALVERSION"
         else
-          # Keep the KMI tag (androidYY) in the version string but drop the branding
-          # tail: the stock tree CONFIG_LOCALVERSION is just "-4k", which produces
-          # "6.6.89-4k" — AnyKernel3's boot-version check greps for
-          # "X.X.X-androidYY" and aborts the flash when the pattern is missing
-          # (bare "-4k" broke every flash with "Check kernel version
-          # compatibility..."). "-<android>" keeps the flash compatible on every
-          # device without any branding suffix.
-          CUSTOM_LOCALVERSION="-${ANDROID_VER}"
-          echo "Custom version name: $CUSTOM_LOCALVERSION (KMI tag, no branding)"
+          # Stock-format complete release:
+          #   "<X.Y.Z>-android<NN>-<KMI>-g<hash>-ab<build><defconfig tail>"
+          # matching the stock OnePlus uname -r layout
+          #   6.6.30-android15-8-g0261dbe3cf7e-ab12786384-4k
+          # The g<hash> is the pinned common-kernel source commit resolved by the
+          # "Get Kernel Version Info" step. The -ab<build> number is OnePlus' CI
+          # BUILD_NUMBER (workspace_status_stamp.py appends "-ab$BUILD_NUMBER"),
+          # which is not part of the OSS release, so a stable 9-digit number is
+          # derived from the source commit instead. The KMI tag keeps AnyKernel3's
+          # boot-version check passing (it greps for "X.X.X-androidYY"), and the
+          # defconfig tail (gki_defconfig CONFIG_LOCALVERSION, e.g. "-4k") stays
+          # at the end like the stock string.
+          if [ -n "${KERNEL_KMI_GENERATION:-}" ]; then
+            CUSTOM_LOCALVERSION="-${ANDROID_VER}-${KERNEL_KMI_GENERATION}"
+          else
+            CUSTOM_LOCALVERSION="-${ANDROID_VER}"
+            echo "::warning::KMI generation unavailable; falling back to '-${ANDROID_VER}'"
+          fi
+          if [ -n "${KERNEL_SRC_HASH12:-}" ]; then
+            BUILD_NUMBER="$(printf '%09d' "$((0x${KERNEL_SRC_HASH12} % 1000000000))")"
+            CUSTOM_LOCALVERSION="${CUSTOM_LOCALVERSION}-g${KERNEL_SRC_HASH12}-ab${BUILD_NUMBER}"
+          fi
+          DEFCONFIG_LV="$(sed -n 's/^CONFIG_LOCALVERSION="\([^"]*\)"$/\1/p' arch/arm64/configs/gki_defconfig || true)"
+          case "$DEFCONFIG_LV" in
+            ""|"${CUSTOM_LOCALVERSION}"*) : ;;
+            *) CUSTOM_LOCALVERSION="${CUSTOM_LOCALVERSION}${DEFCONFIG_LV}" ;;
+          esac
+          echo "Custom version name: $CUSTOM_LOCALVERSION (complete stock-format release)"
         fi
         echo "CUSTOM_LOCALVERSION=$CUSTOM_LOCALVERSION" >> "$GITHUB_ENV"
+        echo "KERNEL_RELEASE=${TKERNEL_VER}${CUSTOM_LOCALVERSION}" >> "$GITHUB_ENV"
 
     - name: Disable GPUEB
       shell: bash
@@ -2448,6 +2530,8 @@ runs:
         cp "$IMAGE_PATH" "$AK3_FOLDER/Image"
         
         mv "${ARTIFACTS_FOLDER}/${OP_MODEL}_${OP_OS_VERSION}.txt" "$AK3_FOLDER/"
+        # Record the complete built kernel release (uname -r) in the AK3 metadata file
+        echo "$KERNEL_RELEASE" >> "$AK3_FOLDER/${OP_MODEL}_${OP_OS_VERSION}.txt"
         cd "$AK3_FOLDER"
         
         sed -i 's/do.check_boot_version=.*/do.check_boot_version=1/' anykernel.sh
@@ -2461,6 +2545,9 @@ runs:
         
         ZIP_MODEL="$MODEL_FLAT"
         # <ksu_variant>-<ksu_version>-<model>-<kernel_version>-<os_version>-AnyKernel3
+        # The artifact name keeps the original short X.Y.Z kernel version on
+        # purpose: only the kernel's own release (uname -r) carries the complete
+        # stock-format string now (see KERNEL_RELEASE).
         # MODEL_FLAT carries a "-<x.y.z>" kernel sub-version tail for some devices
         # (e.g. OnePlus-Ace5-RACE-6.1.115); strip it so the version is not printed
         # twice in the file name next to ZIP_KERNEL_VER.
@@ -2469,6 +2556,7 @@ runs:
         ZIP_MODEL="${MODEL_FLAT%"$ZIP_MODEL_SUFFIX"}"
         ZIP_NAME="${{ inputs.ksu_type }}-${KSUVER:-unknown}-${ZIP_MODEL}-${ZIP_KERNEL_VER}-${OP_OS_VERSION}-AnyKernel3.zip"
         mkdir -p "$ARTIFACTS_FOLDER"
+        echo "kernel_release=$KERNEL_RELEASE" >> "$GITHUB_OUTPUT"
         
         echo "Creating flashable ZIP: $ZIP_NAME"
         

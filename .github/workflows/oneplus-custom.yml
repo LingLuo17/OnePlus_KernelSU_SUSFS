@@ -551,6 +551,7 @@ jobs:
           if [ "${{ steps.build.outcome }}" = "success" ]; then
             echo "✅ Build completed successfully"
             echo "  - Kernel: ${{ steps.build.outputs.kernel_version }}"
+            echo "  - Kernel release: ${{ steps.build.outputs.kernel_release }}"
             echo "  - KSU: v${{ steps.build.outputs.ksu_version }}"
             echo "  - Build time: ${{ steps.build.outputs.build_time }}s"
             echo "  - Image SHA256: ${{ steps.build.outputs.image_sha256 }}"
