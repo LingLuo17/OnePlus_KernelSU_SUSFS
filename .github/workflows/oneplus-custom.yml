@@ -183,15 +183,6 @@ on:
         required: false
         type: string
         default: ''
-      use_kpm:
-        description: 'KPM 功能（仅SukiSU支持）'
-        required: true
-        type: choice
-        default: 'disabled (关闭)'
-        options:
-          - 'disabled (关闭)'
-          - 'enabled (开启)'
-          - 'patched (开启并修补)'
       use_rekernel:
         description: '启用 Re-Kernel 驱动（默认关闭）'
         required: false
@@ -397,11 +388,10 @@ jobs:
             echo "|---------|-------|"
             echo "| Device | \`${{ steps.set-matrix.outputs.model_display }}\` |"
             echo "| KernelSU | \`${{ inputs.ksu_variant }}\` @ \`${{ inputs.ksu_variant == 'SukiSU' && 'builtin' || 'main' }}\` |"
-            echo "| KPM | \`${{ inputs.use_kpm }}\` |"
             echo "| Re-Kernel | ${{ inputs.use_rekernel && '✅ enabled' || '❌ disabled' }} |"
             echo "| Optimization | \`${{ inputs.optimize_level }}\` |"
             echo "| Droidspaces & NTSync | ${{ inputs.enable_droidspaces_ntsync && '✅ enabled' || '❌ disabled' }} |"
-            echo "| Custom version | \`${{ inputs.custom_version || 'auto (-<android>-<uname>)' }}\` |"
+            echo "| Custom version | \`${{ inputs.custom_version || 'auto (-<android> KMI tag)' }}\` |"
             echo "| Build timestamp | \`${{ inputs.build_timestamp || 'auto (current build time)' }}\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -489,7 +479,7 @@ jobs:
         run: |
           echo "::group::Configure ccache environment"
           set -euo pipefail
-          if command -v ccache >/devull 2>&1; then
+          if command -v ccache >/dev/null 2>&1; then
             CACHE_DIR="${{ github.workspace }}/.ccache"
             CCACHE_LOG="${{ github.workspace }}/ccache.log"
             mkdir -p "$CACHE_DIR"
@@ -541,7 +531,6 @@ jobs:
           op_config_json: ${{ steps.prepare_config.outputs.config_json }}
           ksu_type: ${{ fromJSON(needs.set-matrix.outputs.matrix)[0].ksu_type }}
           ksu_branch_or_hash: ${{ fromJSON(needs.set-matrix.outputs.matrix)[0].ksu_resolved_hash }}
-          use_kpm: ${{ inputs.use_kpm }}
           use_rekernel: ${{ inputs.use_rekernel }}
           # BakaSU：内核侧检出到官方最新上传 Manager 构建的同一提交（空=跟随 ksu_branch_or_hash）
           ksu_commit: ${{ needs.get-manager.outputs.ksuCommit }}
@@ -558,7 +547,6 @@ jobs:
           echo "::group::Build Statistics"
           echo "Device: ${{ needs.set-matrix.outputs.model_display }}"
           echo "KernelSU: ${{ inputs.ksu_variant }}"
-          echo "KPM: ${{ inputs.use_kpm }}"
           echo "Re-Kernel: ${{ inputs.use_rekernel }}"
           if [ "${{ steps.build.outcome }}" = "success" ]; then
             echo "✅ Build completed successfully"

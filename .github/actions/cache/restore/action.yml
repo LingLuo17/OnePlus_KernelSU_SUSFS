@@ -31,11 +31,20 @@ runs:
       shell: bash
       env:
         TARGET_REPO: "${{ github.repository }}"
+        CACHE_PATH: "${{ inputs.cache_path }}"
       run: |
         # Detect and Download Cache
         if [ "${{ inputs.debug }}" = "true" ]; then set -x; fi
-        
+
         cd "$GITHUB_WORKSPACE"
+
+        # An empty cache_path (e.g. CCACHE_DIR not configured upstream) would make
+        # the extraction step run `mkdir -p ""` and kill the job only when a cache
+        # is actually hit. Skip the restore with a loud warning instead.
+        if [ -z "$CACHE_PATH" ]; then
+          echo "::warning title=Cache restore skipped::cache_path input is empty - skipping cache restore and continuing without it"
+          exit 0
+        fi
         
         TAG_NAME="${{ inputs.cache_bucket }}"
         BASE_URL="https://github.com/${TARGET_REPO}/releases/download/$TAG_NAME"

@@ -17,7 +17,7 @@
 
 ## 📖 Introduction
 
-This repository builds **OnePlus (Oppo/Realme) device kernels** with GitHub Actions, integrating SukiSU / BakaSU and the SUSFS kernel-level hiding solution, plus practical patches such as BBG, network enhancements and KPM.
+This repository builds **OnePlus (Oppo/Realme) device kernels** with GitHub Actions, integrating SukiSU / BakaSU and the SUSFS kernel-level hiding solution, plus practical patches such as BBG and network enhancements.
 
 - The build workflows are adapted from [WildKernels/OnePlus_KernelSU_SUSFS](https://github.com/WildKernels/OnePlus_KernelSU_SUSFS)
 - Supported devices: **Android 15 / Android 16 (ColorOS)** OnePlus devices, covering GKI `5.10 / 5.15 / 6.1 / 6.6 / 6.12`
@@ -29,7 +29,7 @@ This repository builds **OnePlus (Oppo/Realme) device kernels** with GitHub Acti
 | Workflow | Purpose | Notes |
 |:---|:---|:---|
 | `build-kernel-release.yml` | Batch build & optional release | Select `A15+16` / `A15` / `A16` or a GKI filter |
-| `oneplus-custom.yml` | Custom single-device build | 145 device versions, KPM, custom version name & build time |
+| `oneplus-custom.yml` | Custom single-device build | 145 device versions, custom version name & build time |
 
 ## ✨ Features
 
@@ -37,7 +37,6 @@ This repository builds **OnePlus (Oppo/Realme) device kernels** with GitHub Acti
 |:---|:---|
 | 🔐 KernelSU Variants | Supports SukiSU / BakaSU variants, selectable at build time |
 | 🙈 SUSFS | Kernel-level hiding working with KSU to complete environment spoofing |
-| ⚡ KPM | SukiSU-only Kernel Patch Module: `CONFIG_KPM` injection and/or build-time image patching with kptools |
 | 🔔 Re-Kernel | Optional Re-Kernel driver integration |
 | 🛡️ BBG (Baseband Guard) | LSM-based protection for critical device partitions; abl/efisp whitelist for exploit devices |
 | 🛠️ HMBIRD SCX | Scheduler extensions for SM8750/MT6991 devices |
@@ -54,7 +53,7 @@ This repository builds **OnePlus (Oppo/Realme) device kernels** with GitHub Acti
 1. **Fork this repository** (or use it directly)
 2. Go to the **Actions** page and pick a workflow:
    - `Build and Release OnePlus Kernels` — batch build by Android version or GKI filter, optionally publish a Release
-   - `OnePlus Custom Kernel Build` — pick one device (with kernel sub-version), choose SukiSU / BakaSU, KPM mode, custom version name & build time
+   - `OnePlus Custom Kernel Build` — pick one device (with kernel sub-version), choose SukiSU / BakaSU, custom version name & build time
 3. Click **Run workflow** and fill in the parameters as needed
 4. Once the build finishes, download the **Artifacts** from the run page:
    - `AnyKernel3.zip` — flashable zip (recommended; flash via custom Recovery or KSU manager)
@@ -63,12 +62,15 @@ This repository builds **OnePlus (Oppo/Realme) device kernels** with GitHub Acti
 
 ## 🙏 Acknowledgments
 
-- [WildKernels/OnePlus_KernelSU_SUSFS](https://github.com/WildKernels/OnePlus_KernelSU_SUSFS)
-- [SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra) / [BakaSU](https://github.com/Baka-SU/BakaSU)
+- [WildKernels/OnePlus_KernelSU_SUSFS](https://github.com/WildKernels/OnePlus_KernelSU_SUSFS) & [WildKernels/kernel_patches](https://github.com/WildKernels/kernel_patches)
+- [SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra) / [BakaSU](https://github.com/Baka-SU/BakaSU) / [KernelSU](https://github.com/tiann/KernelSU)
 - [SUSFS](https://gitlab.com/simonpunk/susfs4ksu)
+- [AnyKernel3](https://github.com/osm0sis/AnyKernel3)
 - [Baseband Guard](https://github.com/vc-teahouse/Baseband-guard)
 - [Re-Kernel](https://github.com/Sakion-Team/Re-Kernel)
 - [Droidspaces](https://github.com/ravindu644/Droidspaces-OSS)
+- [ZyCromerZ/Clang](https://github.com/ZyCromerZ/Clang) (build compiler)
+- [OnePlusOSS](https://github.com/OnePlusOSS) (kernel sources) & [CodeLinaro](https://git.codelinaro.org/) (prebuilt toolchains)
 
 <div align="center">
 
@@ -108,7 +110,7 @@ This repository builds **OnePlus (Oppo/Realme) device kernels** with GitHub Acti
 
 ## 📖 简介
 
-本仓库通过 GitHub Actions 自动编译 **一加（Oppo/Realme）设备内核**，集成 SukiSU / BakaSU 与 SUSFS 内核级隐藏方案，并附带 BBG 基带保护、网络增强、KPM 等实用补丁。
+本仓库通过 GitHub Actions 自动编译 **一加（Oppo/Realme）设备内核**，集成 SukiSU / BakaSU 与 SUSFS 内核级隐藏方案，并附带 BBG 基带保护、网络增强等实用补丁。
 
 - 构建工作流修改自 [WildKernels/OnePlus_KernelSU_SUSFS](https://github.com/WildKernels/OnePlus_KernelSU_SUSFS)
 - 支持设备：**Android 15 / Android 16（ColorOS）** 一加设备，覆盖 GKI `5.10 / 5.15 / 6.1 / 6.6 / 6.12`
@@ -120,7 +122,7 @@ This repository builds **OnePlus (Oppo/Realme) device kernels** with GitHub Acti
 | 工作流 | 用途 | 说明 |
 |:---|:---|:---|
 | `build-kernel-release.yml` | 批量构建 & 可选发布 | 选择 `A15+16` / `A15` / `A16` 或 GKI 过滤 |
-| `oneplus-custom.yml` | 自定义单设备构建 | 145 个设备版本、KPM、自定义版本名与构建时间 |
+| `oneplus-custom.yml` | 自定义单设备构建 | 145 个设备版本、自定义版本名与构建时间 |
 
 ## ✨ 功能特性
 
@@ -128,7 +130,6 @@ This repository builds **OnePlus (Oppo/Realme) device kernels** with GitHub Acti
 |:---|:---|
 | 🔐 KernelSU 变体 | 支持 SukiSU / BakaSU 变体，构建时按需选择 |
 | 🙈 SUSFS | 内核级隐藏，配合 KSU 完成环境伪装 |
-| ⚡ KPM | 仅 SukiSU 支持：注入 `CONFIG_KPM` 和/或构建期使用 kptools 修补内核镜像 |
 | 🔔 Re-Kernel | 可选集成 Re-Kernel 驱动 |
 | 🛡️ BBG 基带保护 | 基于 LSM 保护关键设备分区；efisp 漏洞设备可加入 abl/efisp 白名单 |
 | 🛠️ HMBIRD SCX | 适用于 SM8750/MT6991 设备的调度扩展 |
@@ -145,7 +146,7 @@ This repository builds **OnePlus (Oppo/Realme) device kernels** with GitHub Acti
 1. **Fork 本仓库**（或直接使用本仓库）
 2. 进入 **Actions** 页面，选择工作流：
    - `Build and Release OnePlus Kernels` —— 按安卓版本或 GKI 过滤批量构建，可选发布 Release
-   - `OnePlus Custom Kernel Build` —— 选择单台设备（含内核子版本）、SukiSU / BakaSU、KPM 模式、自定义版本名与构建时间
+   - `OnePlus Custom Kernel Build` —— 选择单台设备（含内核子版本）、SukiSU / BakaSU、自定义版本名与构建时间
 3. 点击 **Run workflow**，按需填写参数
 4. 构建完成后，在本次运行页面下载 **Artifacts**：
    - `AnyKernel3.zip` —— 卡刷包（推荐，配合自定义 Recovery 或 KSU 管理器刷入）
@@ -154,12 +155,15 @@ This repository builds **OnePlus (Oppo/Realme) device kernels** with GitHub Acti
 
 ## 🙏 致谢
 
-- [WildKernels/OnePlus_KernelSU_SUSFS](https://github.com/WildKernels/OnePlus_KernelSU_SUSFS)
-- [SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra) / [BakaSU](https://github.com/Baka-SU/BakaSU)
+- [WildKernels/OnePlus_KernelSU_SUSFS](https://github.com/WildKernels/OnePlus_KernelSU_SUSFS) & [WildKernels/kernel_patches](https://github.com/WildKernels/kernel_patches)
+- [SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra) / [BakaSU](https://github.com/Baka-SU/BakaSU) / [KernelSU](https://github.com/tiann/KernelSU)
 - [SUSFS](https://gitlab.com/simonpunk/susfs4ksu)
+- [AnyKernel3](https://github.com/osm0sis/AnyKernel3)
 - [Baseband Guard](https://github.com/vc-teahouse/Baseband-guard)
 - [Re-Kernel](https://github.com/Sakion-Team/Re-Kernel)
 - [Droidspaces](https://github.com/ravindu644/Droidspaces-OSS)
+- [ZyCromerZ/Clang](https://github.com/ZyCromerZ/Clang)（构建编译器）
+- [OnePlusOSS](https://github.com/OnePlusOSS)（内核源码）& [CodeLinaro](https://git.codelinaro.org/)（预构建工具链）
 
 <div align="center">
 

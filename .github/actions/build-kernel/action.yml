@@ -1,5 +1,5 @@
 name: 'Build OnePlus Kernel with SukiSU/BakaSU'
-description: 'Build OnePlus GKI kernel with SukiSU/BakaSU, SUSFS and optional KPM support'
+description: 'Build OnePlus GKI kernel with SukiSU/BakaSU and SUSFS'
 
 inputs:
   op_config_json:
@@ -18,11 +18,6 @@ inputs:
     required: false
     type: string
     default: ""
-  use_kpm:
-    description: 'KPM feature (SukiSU only): disabled | enabled (CONFIG_KPM) | patched (patch Image with kptools)'
-    required: false
-    type: string
-    default: 'disabled (关闭)'
   use_rekernel:
     description: 'Integrate the Re-Kernel driver in-tree (CONFIG_REKERNEL, netlink freeze/kill notifier)'
     required: false
@@ -34,7 +29,7 @@ inputs:
     type: string
     default: ''
   custom_version:
-    description: 'Custom kernel version suffix for LOCALVERSION (leading "x.y.z" kernel version prefix is stripped automatically, e.g. "6.6.118-mykernel" becomes "-mykernel"; empty = -<android>-<uname>)'
+    description: 'Custom kernel version suffix for LOCALVERSION (leading "x.y.z" kernel version prefix is stripped automatically, e.g. "6.6.118-mykernel" becomes "-mykernel"; empty = -<android> KMI tag, e.g. -android15)'
     required: false
     type: string
     default: ''
@@ -949,16 +944,6 @@ runs:
         
         retry_clone "https://github.com/WildKernels/kernel_patches.git" "main" "1"
 
-        # KPM 构建期修补工具 (kptools + 内置 kpimg)，仅 use_kpm=patched 时需要
-        if [[ "${{ inputs.use_kpm }}" == patched* ]]; then
-          retry_clone "https://github.com/ShirkNeko/SukiSU_patch.git" "main" "1"
-          if [ ! -f "$GITHUB_WORKSPACE/SukiSU_patch/kpm/patch_linux" ]; then
-            echo "::error::SukiSU_patch/kpm/patch_linux not found after clone"
-            exit 1
-          fi
-          echo "✅ SukiSU_patch cloned (KPM patch tool ready)"
-        fi
-
         if [ "${{ env.OP_SUSFS }}" = true ]; then
           echo "Using SUSFS branch/commit: $SUSFS_BRANCH"
           # 优先从本仓库 toolchain-cache 下载 SUSFS 归档（mirror 预缓存），
@@ -1034,7 +1019,7 @@ runs:
         echo "Adding SukiSU..."
         KSU_INPUT="${{ inputs.ksu_branch_or_hash }}"
         if [ -z "$KSU_INPUT" ]; then
-          # builtin 分支：内置 SUSFS + KPM 支持
+          # builtin 分支：内置 SUSFS 支持
           KSU_INPUT="builtin"
         fi
         curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s "$KSU_INPUT"
@@ -1068,6 +1053,50 @@ runs:
         if [ -f "$GITHUB_WORKSPACE/scripts/ksu_post_setup.sh" ]; then
           bash "$GITHUB_WORKSPACE/scripts/ksu_post_setup.sh" "$KSU_FOLDER" sukisu
           echo "✅ SukiSU 版本标识已注入 @LingLuo"
+        fi
+
+        # ── Kernel-tree API compatibility for SukiSU (auto-detected, all kernel versions) ──
+        # Newer BSP kernel trees (sm8845/sm8850/mt6789/mt6993, android16-6.12.38+) diverged
+        # from what the builtin branch expects and fail to compile without these fixes:
+        # 1) struct netlink_kernel_cfg lost its `cb_mutex` member -> the dynamic member
+        #    table in kpm/super_access.c references a non-existent member (compile error).
+        # 2) security_add_hooks() takes a `const struct lsm_id *lsmid` instead of a
+        #    `const char *`; the struct lsm_id string field is named `name` or `lsm`
+        #    depending on the tree, so the field is detected at build time.
+        # 3) KERNEL_SU_UAPI_VERSION on the builtin branch (2) lags the manager (5) even
+        #    though the interfaces (report_event etc.) already exist; sync the declared
+        #    value from upstream main so the manager stops showing "kernel update required".
+        NETLINK_H="$COMMON_KERNEL_FOLDER/include/linux/netlink.h"
+        SU_SUPER="$KSU_FOLDER/kernel/kpm/super_access.c"
+        if [ -f "$NETLINK_H" ] && [ -f "$SU_SUPER" ]; then
+          if ! grep -q "cb_mutex" "$NETLINK_H" && grep -q "DEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)" "$SU_SUPER"; then
+            sed -i '/DEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)/d' "$SU_SUPER"
+            echo "🔧 compat: dropped DEFINE_MEMBER(netlink_kernel_cfg, cb_mutex) (member removed in this kernel tree)"
+          fi
+        fi
+
+        LSM_HOOKS_H="$COMMON_KERNEL_FOLDER/include/linux/lsm_hooks.h"
+        SU_LSM="$KSU_FOLDER/kernel/hook/lsm_hook.c"
+        if [ -f "$LSM_HOOKS_H" ] && [ -f "$SU_LSM" ]; then
+          if grep -q "const struct lsm_id \*lsmid" "$LSM_HOOKS_H" && grep -q 'security_add_hooks(ksu_hooks, ARRAY_SIZE(ksu_hooks), "ksu")' "$SU_LSM"; then
+            LSM_FIELD="$(sed -n '/struct lsm_id {/,/};/p' "$LSM_HOOKS_H" | grep -oE 'const char[[:space:]]+\*[a-z_]+' | head -n1 | sed -E 's/const char[[:space:]]+\*//')"
+            LSM_FIELD="${LSM_FIELD:-name}"
+            sed -i 's|security_add_hooks(ksu_hooks, ARRAY_SIZE(ksu_hooks), "ksu");|{ static const struct lsm_id ksu_lsm_id = { .'"$LSM_FIELD"' = "ksu", .id = 0 }; security_add_hooks(ksu_hooks, ARRAY_SIZE(ksu_hooks), \&ksu_lsm_id); }|' "$SU_LSM"
+            echo "🔧 compat: security_add_hooks migrated to the const struct lsm_id * API (field: $LSM_FIELD)"
+          fi
+        fi
+
+        UAPI_H="$KSU_FOLDER/kernel/include/uapi/supercall.h"
+        if [ -f "$UAPI_H" ] && grep -q "KERNEL_SU_UAPI_VERSION, 2)" "$UAPI_H"; then
+          MAIN_UAPI="$(curl -sL --max-time 30 "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/uapi/supercall.h" 2>/dev/null | grep -oE 'KERNEL_SU_UAPI_VERSION = [0-9]+' | awk '{print $3}' | head -n1 || true)"
+          MAIN_UAPI="${MAIN_UAPI:-5}"
+          case "$MAIN_UAPI" in
+            ''|*[!0-9]*) MAIN_UAPI=5 ;;
+          esac
+          if [ "$MAIN_UAPI" -gt 2 ]; then
+            sed -i "s/DECLARE(__u32, KERNEL_SU_UAPI_VERSION, 2)/DECLARE(__u32, KERNEL_SU_UAPI_VERSION, ${MAIN_UAPI})/" "$UAPI_H"
+            echo "🔧 compat: KERNEL_SU_UAPI_VERSION synced to upstream main ($MAIN_UAPI) so the manager matches the kernel"
+          fi
         fi
         cd KernelSU/kernel
 
@@ -1329,25 +1358,6 @@ runs:
         CONFIG_KSU_SUSFS_SUS_SU=n
         EOF
         
-        echo "::endgroup::"
-
-    - name: Enable KPM (CONFIG_KPM)
-      shell: bash
-      if: ${{ startsWith(inputs.use_kpm, 'enabled') || startsWith(inputs.use_kpm, 'patched') }}
-      run: |
-        set -euo pipefail
-        echo "::group::Enable KPM"
-        if [ "${{ inputs.ksu_type }}" != "SukiSU" ]; then
-          echo "::warning title=KPM 已跳过::KPM 功能仅 SukiSU 支持（当前变体: ${{ inputs.ksu_type }}），已跳过"
-          echo "::endgroup::"
-          exit 0
-        fi
-        if grep -RqsE '^[[:space:]]*config[[:space:]]+KPM([[:space:]]|$)' "$KSU_FOLDER/kernel" 2>/dev/null; then
-          echo "CONFIG_KPM=y" >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig"
-          echo "✅ CONFIG_KPM=y enabled (SukiSU KPM)"
-        else
-          echo "::warning title=KPM 已跳过::当前 SukiSU 代码未声明 CONFIG_KPM，已跳过 KPM 功能"
-        fi
         echo "::endgroup::"
 
     - name: Add BBG
@@ -1942,7 +1952,15 @@ runs:
           CUSTOM_LOCALVERSION="${CLEAN_VERSION}"
           echo "Custom version name: $CUSTOM_LOCALVERSION"
         else
-          CUSTOM_LOCALVERSION="-${ANDROID_VER}-${OP_UNAME}"
+          # Keep the KMI tag (androidYY) in the version string but drop the branding
+          # tail: the stock tree CONFIG_LOCALVERSION is just "-4k", which produces
+          # "6.6.89-4k" — AnyKernel3's boot-version check greps for
+          # "X.X.X-androidYY" and aborts the flash when the pattern is missing
+          # (bare "-4k" broke every flash with "Check kernel version
+          # compatibility..."). "-<android>" keeps the flash compatible on every
+          # device without any branding suffix.
+          CUSTOM_LOCALVERSION="-${ANDROID_VER}"
+          echo "Custom version name: $CUSTOM_LOCALVERSION (KMI tag, no branding)"
         fi
         echo "CUSTOM_LOCALVERSION=$CUSTOM_LOCALVERSION" >> "$GITHUB_ENV"
 
@@ -2154,8 +2172,8 @@ runs:
         
         make LD="$COMMON_KERNEL_FOLDER/ld-wrapper" HOSTLD="$COMMON_KERNEL_FOLDER/ld-wrapper" O="$OUT" gki_defconfig
         
-        LOCAL_LOCALVERSION="${CUSTOM_LOCALVERSION:--OP-WILD}"
-        if [ -n "${LOCAL_LOCALVERSION:-}" ]; then
+        LOCAL_LOCALVERSION="${CUSTOM_LOCALVERSION:-}"
+        if [ -n "$LOCAL_LOCALVERSION" ]; then
           scripts/config --file "$OUT/.config" --set-str LOCALVERSION "${LOCAL_LOCALVERSION}"
           scripts/config --file "$OUT/.config" -d LOCALVERSION_AUTO || true
           sed -i 's/scm_version="$(scm_version --short)"/scm_version=""/' scripts/setlocalversion
@@ -2186,8 +2204,24 @@ runs:
             exit 1
             ;;
         esac
-        
-        
+
+        # ── 修复 vendor 预编译模块 Unknown symbol（全设备、全内核版本）──────────
+        # 厂商分区预编译的 tls.ko / bluetooth.ko 依赖内核导出的 skmsg/sock_map 符号
+        # （sk_msg_*、sk_psock_*、tcp_bpf_sendmsg_redir、sk_filter_trim_cap 等）。
+        # 这些符号的导出依赖 BPF_SYSCALL + CGROUP_BPF + BPF_STREAM_PARSER
+        # （select NET_SOCK_MSG / STREAM_PARSER）以及 TLS=m / BT=m 的 select 链。
+        # 官方内核 .config 实测为 NET_SOCK_MSG=y + STREAM_PARSER=y。
+        # 此前 BPF_STREAM_PARSER 仅在 ip_set 功能开启时追加，且 patch 链可能干扰
+        # defconfig 的 select 链，导致模块加载报 Unknown symbol (err -22)。
+        # 在最终 .config 层显式对齐官方配置（olddefconfig 幂等，无害）。
+        scripts/config --file "$OUT/.config" \
+          -e BPF_SYSCALL \
+          -e CGROUP_BPF \
+          -e BPF_STREAM_PARSER \
+          -m TLS \
+          -m BT
+        echo "🔧 Aligned skmsg/sockmap symbol-export configs with stock kernel (fix tls.ko/bluetooth.ko Unknown symbol)"
+
         make LD="$COMMON_KERNEL_FOLDER/ld-wrapper" HOSTLD="$COMMON_KERNEL_FOLDER/ld-wrapper" O="$OUT" olddefconfig
         
         KCFLAGS="$KCFLAGS -Wno-error -pipe ${KCFLAGS_EXTRA}"
@@ -2334,50 +2368,6 @@ runs:
         echo "::endgroup::"
         
 
-    - name: Apply KPM Patch (patched Image with kptools)
-      shell: bash
-      if: ${{ startsWith(inputs.use_kpm, 'patched') && inputs.ksu_type == 'SukiSU' }}
-      run: |
-        set -euo pipefail
-        echo "::group::Apply KPM patch (kptools)"
-        # 与 Collect Build Stats 相同的三候选路径解析
-        IMG="$COMMON_KERNEL_FOLDER/out/arch/arm64/boot/Image"
-        if [ -f "$KERNEL_PLATFORM_FOLDER/out/$OP_ANDROID_VERSION-$OP_KERNEL_VERSION/dist/Image" ]; then
-          IMG="$KERNEL_PLATFORM_FOLDER/out/$OP_ANDROID_VERSION-$OP_KERNEL_VERSION/dist/Image"
-        elif [ -f "$KERNEL_PLATFORM_FOLDER/bazel-bin/common/kernel_aarch64/Image" ]; then
-          IMG="$KERNEL_PLATFORM_FOLDER/bazel-bin/common/kernel_aarch64/Image"
-        fi
-        
-        if [ ! -f "$IMG" ]; then
-          echo "::error::Kernel Image not found at: $IMG, cannot apply KPM patch"
-          exit 1
-        fi
-        echo "KPM patch target: $IMG"
-        
-        PATCH_TOOL="$GITHUB_WORKSPACE/SukiSU_patch/kpm/patch_linux"
-        if [ ! -f "$PATCH_TOOL" ]; then
-          echo "::error::KPM patch tool not found: $PATCH_TOOL"
-          exit 1
-        fi
-        
-        IMG_DIR="$(dirname "$IMG")"
-        cp -f "$PATCH_TOOL" "$IMG_DIR/kpm_patch"
-        chmod 755 "$IMG_DIR/kpm_patch"
-        cd "$IMG_DIR"
-        # kpm_patch 无参数运行：读取 ./Image 并输出 ./oImage
-        if ! ./kpm_patch; then
-          echo "::error::KPM patch tool failed (kptools may be incompatible with this kernel version)"
-          exit 1
-        fi
-        if [ ! -f ./oImage ]; then
-          echo "::error::KPM patch produced no oImage, kptools may be incompatible with this kernel version"
-          exit 1
-        fi
-        mv -f ./oImage ./Image
-        rm -f ./kpm_patch
-        echo "✅ KPM patched at build time (kptools) — flashing the AnyKernel3 zip requires no extra patching"
-        echo "::endgroup::"
-
     - name: Collect Build Stats / Validate Image
       id: collect_stats
       shell: bash
@@ -2471,7 +2461,12 @@ runs:
         
         ZIP_MODEL="$MODEL_FLAT"
         # <ksu_variant>-<ksu_version>-<model>-<kernel_version>-<os_version>-AnyKernel3
+        # MODEL_FLAT carries a "-<x.y.z>" kernel sub-version tail for some devices
+        # (e.g. OnePlus-Ace5-RACE-6.1.115); strip it so the version is not printed
+        # twice in the file name next to ZIP_KERNEL_VER.
         ZIP_KERNEL_VER="${KERNEL_FULL_VER#*-}"
+        ZIP_MODEL_SUFFIX="-$ZIP_KERNEL_VER"
+        ZIP_MODEL="${MODEL_FLAT%"$ZIP_MODEL_SUFFIX"}"
         ZIP_NAME="${{ inputs.ksu_type }}-${KSUVER:-unknown}-${ZIP_MODEL}-${ZIP_KERNEL_VER}-${OP_OS_VERSION}-AnyKernel3.zip"
         mkdir -p "$ARTIFACTS_FOLDER"
         

@@ -38,15 +38,6 @@ on:
           - SukiSU
           - BakaSU
         default: BakaSU
-      use_kpm:
-        description: 'KPM 功能（仅SukiSU支持）'
-        required: true
-        type: choice
-        default: 'disabled (关闭)'
-        options:
-          - 'disabled (关闭)'
-          - 'enabled (开启)'
-          - 'patched (开启并修补)'
       use_rekernel:
         description: '启用 Re-Kernel 驱动（默认关闭）'
         required: false
@@ -117,7 +108,7 @@ jobs:
           
           input="${{ github.event.inputs.op_model }}"
           ksu_variant="${{ github.event.inputs.ksu_variant }}"
-          # 固定默认分支：SukiSU→builtin（内置 SUSFS+KPM）、BakaSU→main
+          # 固定默认分支：SukiSU→builtin（内置 SUSFS）、BakaSU→main
           case "$ksu_variant" in
             SukiSU)
               ksu_hash="builtin"
@@ -683,7 +674,6 @@ jobs:
           op_config_json: ${{ steps.prepare_config.outputs.config_json }}
           ksu_type: ${{ matrix.ksu_type }}
           ksu_branch_or_hash: ${{ matrix.ksu_resolved_hash }}
-          use_kpm: ${{ inputs.use_kpm }}
           use_rekernel: ${{ inputs.use_rekernel }}
           # BakaSU：内核侧检出到官方最新上传 Manager 构建的同一提交（空=跟随 ksu_branch_or_hash）
           ksu_commit: ${{ needs.get-manager.outputs.ksuCommit }}
@@ -971,12 +961,6 @@ jobs:
             COMMON_FEATURES="按设备而异"
           fi
 
-          # KPM status label for release notes (three states)
-          case "${{ inputs.use_kpm }}" in
-            enabled*)  KPM_STATUS="开启（未修补）" ;;
-            patched*)  KPM_STATUS="开启（构建时修补）" ;;
-            *)         KPM_STATUS="未开启" ;;
-          esac
 
           cat << EOF > release_notes.md
           ## OnePlus Kernel Release
@@ -1001,7 +985,6 @@ jobs:
           | Hook 类型 | SUSFS Inline Hooks |
           | 挂载方式 | Magic Mount |
           | LTO | thin |
-          | KPM | $KPM_STATUS |
           | Re-Kernel 驱动 | ${{ inputs.use_rekernel && '开启' || '未开启' }} |
           | Droidspaces & NTSync | ${{ inputs.enable_droidspaces_ntsync && '开启' || '未开启' }} |
           | 优化级别 | $OPTIMIZE_LEVEL |
