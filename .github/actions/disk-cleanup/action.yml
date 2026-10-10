@@ -1,13 +1,6 @@
 name: 'Disk Cleanup'
 description: 'Emergency disk cleanup for self-hosted/large runners'
 
-inputs:
-  debug:
-    description: 'Enable Logs'
-    required: false
-    type: boolean
-    default: false
-
 runs:
   using: 'composite'
   steps:

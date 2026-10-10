@@ -1125,18 +1125,18 @@ jobs:
           ### High Usage Cleanup (>75%)
           ```bash
           # Clean all old caches (>7 days)
-          gh workflow run cleanup.yml \
+          gh workflow run clean-up.yml \
             -f cleanup_type=cache_only \
             -f cache_pattern=old_only \
             -f cache_age_days=7
           
           # Clean stale ccache (>14 days)
-          gh workflow run cleanup.yml \
+          gh workflow run clean-up.yml \
             -f cleanup_type=cache_only \
             -f cache_pattern=ccache_stale
           
           # Clean specific device
-          gh workflow run cleanup.yml \
+          gh workflow run clean-up.yml \
             -f cleanup_type=cache_only \
             -f device_filter=OnePlus13 \
             -f cache_pattern=ccache_only
@@ -1145,16 +1145,16 @@ jobs:
           ### Regular Maintenance
           ```bash
           # Weekly cleanup (recommended)
-          gh workflow run cleanup.yml \
+          gh workflow run clean-up.yml \
             -f cleanup_type=full_cleanup \
             -f cache_age_days=14
           
           # Analyze only (no changes)
-          gh workflow run cleanup.yml \
+          gh workflow run clean-up.yml \
             -f cleanup_type=analyze_only
           
           # Dry run preview
-          gh workflow run cleanup.yml \
+          gh workflow run clean-up.yml \
             -f cleanup_type=cache_only \
             -f dry_run=true
           ```
@@ -1162,13 +1162,13 @@ jobs:
           ### Emergency Cleanup
           ```bash
           # Force cleanup everything old
-          gh workflow run cleanup.yml \
+          gh workflow run clean-up.yml \
             -f cleanup_type=full_cleanup \
             -f force_cleanup=true \
             -f cache_age_days=3
           
           # Clean all ccache immediately
-          gh workflow run cleanup.yml \
+          gh workflow run clean-up.yml \
             -f cleanup_type=cache_only \
             -f cache_pattern=ccache_only \
             -f force_cleanup=true
@@ -1177,13 +1177,13 @@ jobs:
           ### Device-Specific Cleanup
           ```bash
           # Clean by kernel version
-          gh workflow run cleanup.yml \
+          gh workflow run clean-up.yml \
             -f cleanup_type=cache_only \
             -f device_filter=android15-6.6 \
             -f cache_pattern=ccache_only
           
           # Clean specific phone model
-          gh workflow run cleanup.yml \
+          gh workflow run clean-up.yml \
             -f cleanup_type=cache_only \
             -f device_filter=OnePlus13 \
             -f cache_pattern=all_caches
@@ -1192,7 +1192,7 @@ jobs:
           ### Workflow Runs Cleanup
           ```bash
           # Clean old workflow runs
-          gh workflow run cleanup.yml \
+          gh workflow run clean-up.yml \
             -f cleanup_type=runs_only \
             -f days_to_keep=7 \
             -f keep_recent_runs=3

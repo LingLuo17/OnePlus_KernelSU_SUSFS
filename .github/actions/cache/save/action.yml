@@ -116,6 +116,12 @@ runs:
             fi
           fi
           
+          # Fail fast if tar/zstd above silently failed instead of retrying
+          # a nonexistent upload for minutes
+          if [ ! -s "$FILENAME" ]; then
+            echo "::error::Archive creation failed: $FILENAME is missing or empty"
+            exit 1
+          fi
           FILE_SIZE=$(stat -c%s "$FILENAME")
           echo "Archive created: $FILENAME ($FILE_SIZE bytes)"
           echo "::endgroup::"

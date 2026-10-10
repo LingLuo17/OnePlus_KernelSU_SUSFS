@@ -90,7 +90,6 @@ jobs:
       susfs_base_version: ${{ steps.set-matrix.outputs.susfs_base_version }}
     env:
       GH_TOKEN: ${{ github.token }}
-      GH_HTTP_TIMEOUT: 600
     steps:
       - name: 📥 Checkout Code (to access configs/)
         uses: actions/checkout@v6

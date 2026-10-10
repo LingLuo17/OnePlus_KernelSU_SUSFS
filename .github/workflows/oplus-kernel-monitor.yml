@@ -11,13 +11,11 @@ jobs:
     permissions:
       contents: write
       issues: write
-      actions: write
 
     env:
       ORG: "OnePlusOSS"
       STATE_FILE: "old_state.json"
       GH_TOKEN: ${{ github.token }}
-      GH_HTTP_TIMEOUT: 600
 
     steps:
       - name: Checkout Main
@@ -62,7 +60,6 @@ jobs:
             echo "✅ Existing state loaded from status-page branch."
           else
             echo "{}" > ../main/"$STATE_FILE"
-            echo "init" > .gitignore # Ensure we can track files if orphan
             echo "ℹ️ No existing state found. Starting fresh."
           fi
 
@@ -155,8 +152,8 @@ jobs:
             
             RETRY_COUNT=0; MAX_RETRIES=3; BRANCH_DATA=""
             until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
-              BRANCH_DATA=$(gh api graphql -f query="$ACTIVE_QUERY" -f owner="$ORG" -f name="$repo" --jq '.data.repository.refs.nodes[]' 2>/dev/null)
-              [ $? -eq 0 ] && [ -n "$BRANCH_DATA" ] && break
+              BRANCH_DATA=$(gh api graphql -f query="$ACTIVE_QUERY" -f owner="$ORG" -f name="$repo" --jq '.data.repository.refs.nodes[]' 2>/dev/null || true)
+              [ -n "$BRANCH_DATA" ] && break
               RETRY_COUNT=$((RETRY_COUNT + 1))
               echo "⚠️ API failed for $repo. Retry $RETRY_COUNT/$MAX_RETRIES..."
               sleep 5
@@ -228,7 +225,11 @@ jobs:
                       if [ "$OLD_VAL" != "NONE" ]; then
                         OLD_OID=$(echo "$OLD_VAL" | cut -d'|' -f2- | jq -r --arg f "$fname" '.[$f] // "NONE"' 2>/dev/null || echo "NONE")
                       fi
-                      [ "$OLD_OID" = "NONE" ] && F_STATUS="🆕 New"
+                      if [ "$OLD_OID" = "NONE" ]; then
+                        F_STATUS="🆕 New"
+                      elif [ "$OLD_OID" != "$foid" ]; then
+                        F_STATUS="📝 Modified"
+                      fi
                       printf '| %s | %s |\n' "$fname" "$F_STATUS"
                     done < <(echo "$FILES_JSON" | jq -r 'to_entries[] | "\(.key)\t\(.value)"')
                     
@@ -336,7 +337,7 @@ jobs:
         run: |
           gh label create "notification" --color "BFD4F2" --repo ${{ github.repository }} --force || true
           DATE_TITLE="Kernel Updates - $(date +'%Y-%m-%d')"
-          ISSUE_NUMBER=$(gh issue list --repo ${{ github.repository }} --label "notification" --state "open" --search "$DATE_TITLE" --json number --jq '.[0].number')
+          ISSUE_NUMBER=$(gh issue list --repo ${{ github.repository }} --label "notification" --state "open" --search "$DATE_TITLE" --json number --jq '.[0].number // empty')
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           
           if [[ "${{ github.repository_owner }}" != "WildKernels" ]]; then

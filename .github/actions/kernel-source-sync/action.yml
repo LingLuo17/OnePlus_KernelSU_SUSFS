@@ -5,9 +5,6 @@ inputs:
     description: 'Folder path to save Kernel source'
     required: true
     type: string
-  github_token:
-    description: 'GitHub Token'
-    required: true
   debug:
     description: 'Enable Logs'
     required: false
@@ -34,18 +31,16 @@ runs:
       shell: python
       env:
         PYTHONUNBUFFERED: "1"
-        GITHUB_TOKEN: ${{ inputs.github_token }}
         DEBUG: ${{ inputs.debug }}
       working-directory: ${{ inputs.source_location }}
       run: |
         # Download Manifest Archives
         import xml.etree.ElementTree as ET
         import subprocess
-        import os, shutil
+        import os, shutil, tempfile
         import time
         import glob
         from concurrent.futures import ThreadPoolExecutor
-        import requests
         
         MAX_WORKERS = (os.cpu_count() or 2) * 4
         NPROC = int(subprocess.check_output("nproc", shell=True).strip())
@@ -83,10 +78,7 @@ runs:
             start_time = time.time()
             MAX_ATTEMPTS = 3
             for attempt in range(1, MAX_ATTEMPTS + 1):
-                shm_workspace = f"/dev/shm/sync_{hash(name) % 1000000}"
-                if os.path.exists(shm_workspace):
-                    shutil.rmtree(shm_workspace, ignore_errors=True)
-                os.makedirs(shm_workspace, exist_ok=True)
+                shm_workspace = tempfile.mkdtemp(prefix="sync_", dir="/dev/shm")
                 
                 print(f"Syncing: {name} -> {path}")
                 print(f"  [PENDING] {name}")
@@ -141,7 +133,7 @@ runs:
                             
                         if not found_in_cache:
                             print(f"::error::[FATAL ERROR] Toolchain {base_filename} NOT FOUND in GitHub Release cache!")
-                            print(f"::error::[FATAL ERROR] Please Run Mirror Toolchain Workflow or select sync toolchain during build!!!")
+                            print(f"::error::[FATAL ERROR] Please run the Mirror Toolchains workflow first to populate the toolchain cache!")
                             return False
                     
                     if found_in_cache:
@@ -168,7 +160,7 @@ runs:
                     if attempt < MAX_ATTEMPTS:
                         time.sleep(5)
                 except Exception as e:
-                    print(f"  [RETRY {attempt}/{MAX_ATTEMPTS}] {name} failed with exit code {e.returncode}. Command: {e.cmd}")
+                    print(f"  [RETRY {attempt}/{MAX_ATTEMPTS}] {name} failed: {type(e).__name__}: {e}")
                     print(f"  [ERROR] Failed to sync {name}")
                     if attempt < MAX_ATTEMPTS:
                         time.sleep(5)

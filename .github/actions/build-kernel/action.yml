@@ -160,7 +160,6 @@ runs:
         ip_set="$OP_IP_SET"
         rust_build="$OP_RUST_BUILD"
         lto="$OP_LTO"
-        uname="$OP_UNAME"
         unicode="$OP_UNICODE"
         c_compiler="$OP_C_COMPILER"
         rust_compiler="$OP_RUST_COMPILER"
@@ -287,12 +286,6 @@ runs:
           errors+=("Input 'lto' contains invalid characters. Allowed: 'thin', 'full' or 'none'. Got: '$lto'")
         fi
         
-        if [[ -z "$uname" ]]; then
-          errors+=("Input 'uname' cannot be empty")
-        elif [[ ${#uname} -gt 44 ]]; then
-          errors+=("Input 'uname' too long. Maximum length: 44. Got: '$uname'")
-        fi
-        
         if [[ -z "$unicode" ]]; then
           errors+=("Input 'unicode' cannot be empty")
         elif [[ "$unicode" != "true" && "$unicode" != "false" ]]; then
@@ -346,14 +339,8 @@ runs:
         echo "Creating folder for configuration: $CONFIG"
         mkdir -p "$CONFIG"
         echo "CONFIG=$CONFIG" >> "$GITHUB_ENV"
-        REPO="/usr/local/bin/repo"
-        if [ ! -x "$REPO" ]; then
-          curl -s https://storage.googleapis.com/git-repo-downloads/repo -o "$REPO"
-          chmod +x "$REPO"
-        fi
-        echo "REPO=$REPO" >> "$GITHUB_ENV"
 
-    - name: Optimize Global Git for Repo Tool
+    - name: Optimize Global Git Settings
       shell: bash
       run: |
         set -euo pipefail
@@ -367,7 +354,6 @@ runs:
       uses: ./action-source/.github/actions/kernel-source-sync
       with:
         source_location: ${{ env.CONFIG }}
-        github_token: ${{ inputs.github_token }}
         debug: ${{ inputs.debug }}
 
     - name: Set Dir Paths
@@ -392,7 +378,6 @@ runs:
         echo "ARTIFACTS_FOLDER=$ARTIFACTS_DIR" >> "$GITHUB_ENV"
         echo "KERNEL_PLATFORM_FOLDER=$KERNEL_PLATFORM_DIR" >> "$GITHUB_ENV"
         echo "COMMON_KERNEL_FOLDER=$COMMON_KERNEL_DIR" >> "$GITHUB_ENV"
-        echo "MSM_KERNEL_FOLDER=$MSM_KERNEL_DIR" >> "$GITHUB_ENV"
         echo "AK3_FOLDER=$AK3_DIR" >> "$GITHUB_ENV"
         echo "DEBUG_ARTIFACTS_FOLDER=$DEBUG_ARTIFACTS_DIR" >> "$GITHUB_ENV"
         echo "KERNEL_PATCHES_FOLDER=$KERNEL_PATCHES_DIR" >> "$GITHUB_ENV"
@@ -591,8 +576,10 @@ runs:
         fi
         echo "::endgroup::"
 
-    - name: 🏷️ Set Build Identity (Hardcoded)
+    - name: 🏷️ Set Build Identity & Build Timestamp
       shell: bash
+      env:
+        CUSTOM_BUILD_TIMESTAMP: ${{ inputs.build_timestamp }}
       run: |
         set -euo pipefail
         echo "::group::Set build user/host"
@@ -607,6 +594,37 @@ runs:
         echo "✅ Build identity configured:"
         echo "   User: $BUILD_USER"
         echo "   Host: $BUILD_HOST"
+        echo "::endgroup::"
+
+        echo "::group::Resolve kernel build timestamp"
+        if [ -n "$CUSTOM_BUILD_TIMESTAMP" ]; then
+          # AnyKernel3-style custom build timestamp: normalize spaces -> validate format -> parse -> verify weekday
+          CUSTOM_BUILD_TIMESTAMP="$(printf '%s' "$CUSTOM_BUILD_TIMESTAMP" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/[[:space:]][[:space:]]*/ /g')"
+          TIME_REGEX='^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ( ?[1-9]|0[1-9]|[12][0-9]|3[01]) ([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9] UTC [0-9]{4}$'
+          if [[ ! "$CUSTOM_BUILD_TIMESTAMP" =~ $TIME_REGEX ]]; then
+            echo "::error::build_timestamp must look like 'Tue Dec  1 08:10:00 UTC 2026' (Wkd Mon DD HH:MM:SS UTC YYYY, weekday must match the date). Got: '$CUSTOM_BUILD_TIMESTAMP'"
+            exit 1
+          fi
+          # Parse into a canonical UTC stamp (also rejects impossible dates such as Feb 30)
+          NORMALIZED_TS="$(LC_ALL=C TZ=UTC date -u -d "$CUSTOM_BUILD_TIMESTAMP" +'%a %b %e %T UTC %Y' 2>/dev/null || true)"
+          if [ -z "$NORMALIZED_TS" ]; then
+            echo "::error::build_timestamp is not a valid UTC date/time. Got: '$CUSTOM_BUILD_TIMESTAMP'"
+            exit 1
+          fi
+          # GNU date ignores the weekday in its input, so parse the real weekday separately and compare
+          TYPED_WD="${CUSTOM_BUILD_TIMESTAMP%% *}"
+          REAL_WD="$(LC_ALL=C TZ=UTC date -u -d "${CUSTOM_BUILD_TIMESTAMP#* }" +%a 2>/dev/null || true)"
+          if [ -z "$REAL_WD" ] || [ "$TYPED_WD" != "$REAL_WD" ]; then
+            echo "::error::build_timestamp weekday does not match the date. Expected: ${REAL_WD:-unknown} (normalized: $NORMALIZED_TS)"
+            exit 1
+          fi
+          export KBUILD_BUILD_TIMESTAMP="$NORMALIZED_TS"
+          echo "📅 Using custom build timestamp: $KBUILD_BUILD_TIMESTAMP"
+        else
+          export KBUILD_BUILD_TIMESTAMP="$(TZ='CST-8' date +'%a %b %d %T UTC %Y')"
+          echo "📅 Using current build timestamp (UTC+8): $KBUILD_BUILD_TIMESTAMP"
+        fi
+        echo "EFFECTIVE_BUILD_TIMESTAMP=$KBUILD_BUILD_TIMESTAMP" >> "$GITHUB_ENV"
         echo "::endgroup::"
 
     - name: Check or Detect Clang
@@ -2144,7 +2162,6 @@ runs:
       shell: bash
       env:
         PYTHONWARNINGS: "ignore:invalid escape sequence"
-        CUSTOM_BUILD_TIMESTAMP: ${{ inputs.build_timestamp }}
       run: |
         set -euo pipefail
         echo "::group::Build kernel with ccache optimization"
@@ -2183,33 +2200,8 @@ runs:
         chmod +x "$COMMON_KERNEL_FOLDER/ld-wrapper"
         
         export SOURCE_DATE_EPOCH=$COMMIT_TIMESTAMP
-        if [ -n "$CUSTOM_BUILD_TIMESTAMP" ]; then
-          # AnyKernel3-style custom build timestamp: normalize spaces -> validate format -> parse -> verify weekday
-          CUSTOM_BUILD_TIMESTAMP="$(printf '%s' "$CUSTOM_BUILD_TIMESTAMP" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/[[:space:]][[:space:]]*/ /g')"
-          TIME_REGEX='^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ( ?[1-9]|0[1-9]|[12][0-9]|3[01]) ([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9] UTC [0-9]{4}$'
-          if [[ ! "$CUSTOM_BUILD_TIMESTAMP" =~ $TIME_REGEX ]]; then
-            echo "::error::build_timestamp must look like 'Tue Dec  1 08:10:00 UTC 2026' (Wkd Mon DD HH:MM:SS UTC YYYY, weekday must match the date). Got: '$CUSTOM_BUILD_TIMESTAMP'"
-            exit 1
-          fi
-          # Parse into a canonical UTC stamp (also rejects impossible dates such as Feb 30)
-          NORMALIZED_TS="$(LC_ALL=C TZ=UTC date -u -d "$CUSTOM_BUILD_TIMESTAMP" +'%a %b %e %T UTC %Y' 2>/dev/null || true)"
-          if [ -z "$NORMALIZED_TS" ]; then
-            echo "::error::build_timestamp is not a valid UTC date/time. Got: '$CUSTOM_BUILD_TIMESTAMP'"
-            exit 1
-          fi
-          # GNU date ignores the weekday in its input, so parse the real weekday separately and compare
-          TYPED_WD="${CUSTOM_BUILD_TIMESTAMP%% *}"
-          REAL_WD="$(LC_ALL=C TZ=UTC date -u -d "${CUSTOM_BUILD_TIMESTAMP#* }" +%a 2>/dev/null || true)"
-          if [ -z "$REAL_WD" ] || [ "$TYPED_WD" != "$REAL_WD" ]; then
-            echo "::error::build_timestamp weekday does not match the date. Expected: ${REAL_WD:-unknown} (normalized: $NORMALIZED_TS)"
-            exit 1
-          fi
-          export KBUILD_BUILD_TIMESTAMP="$NORMALIZED_TS"
-          echo "📅 Using custom build timestamp: $KBUILD_BUILD_TIMESTAMP"
-        else
-          export KBUILD_BUILD_TIMESTAMP="$(TZ='CST-8' date +'%a %b %d %T UTC %Y')"
-          echo "📅 Using current build timestamp (UTC+8): $KBUILD_BUILD_TIMESTAMP"
-        fi
+        export KBUILD_BUILD_TIMESTAMP="${EFFECTIVE_BUILD_TIMESTAMP:-$(TZ='CST-8' date +'%a %b %d %T UTC %Y')}"
+        echo "📅 Kernel build timestamp: $KBUILD_BUILD_TIMESTAMP"
         echo "EFFECTIVE_BUILD_TIMESTAMP=$KBUILD_BUILD_TIMESTAMP" >> "$GITHUB_ENV"
         export KBUILD_BUILD_USER="${BUILD_USER:-kernel}"
         export KBUILD_BUILD_HOST="${BUILD_HOST:-kleaf}"
@@ -2357,8 +2349,6 @@ runs:
         BUILD_END=$(date +%s)
         BUILD_TIME=$((BUILD_END - BUILD_START))
         
-        echo "BUILD_START=$BUILD_START" >> "$GITHUB_ENV"
-        echo "BUILD_END=$BUILD_END" >> "$GITHUB_ENV"
         echo "BUILD_TIME=$BUILD_TIME" >> "$GITHUB_ENV"
         
         IMG="$OUT/arch/arm64/boot/Image"
