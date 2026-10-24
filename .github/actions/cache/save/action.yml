@@ -92,6 +92,10 @@ runs:
         fi
         echo "::endgroup::"
         
+        if ! gh release view "$TAG_NAME" --repo "$TARGET_REPO" >/dev/null 2>&1; then
+          gh release create "$TAG_NAME" --title "General Cache" --notes "Automated storage for build assets" --repo "$TARGET_REPO" || gh release view "$TAG_NAME" --repo "$TARGET_REPO" >/dev/null
+        fi
+        
         echo "::group:: Archiving Path"
         echo "Target: ${{ inputs.cache_path }}"
         
