@@ -34,11 +34,12 @@ jobs:
             
             GIT_COMMITTER_DATE="2015-01-01T12:00:00" git tag -a "$TAG_NAME" -m "Internal Toolchains Cache"
             git push origin "$TAG_NAME"
-            
+          fi
+
+          if ! gh release view "$TAG_NAME" --repo "$TARGET_REPO" >/dev/null 2>&1; then
+
             echo "Release not found. Creating..."
             gh release create "$TAG_NAME" --title "Toolchains Mirror Cache" --notes "Deduplicated Toolchains for Kernel Build" --repo "$TARGET_REPO"
-          else
-            echo "Release 'toolchain-cache' already exists. Skipping creation."
           fi
 
   generate-mirror-matrix:
