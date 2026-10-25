@@ -1,5 +1,5 @@
 {
-  "model": "OP-PAD-2-SM8650-6.1.118",
+  "model": "OP-PAD-2-SM8650-6.1.141",
   "soc": "pineapple",
   "branch": "wild/sm8650",
   "manifest": "oneplus_pad2_sm8650_w.xml",

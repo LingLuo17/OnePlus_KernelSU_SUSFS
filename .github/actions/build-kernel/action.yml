@@ -567,6 +567,18 @@ runs:
         PATCHLEVEL=$(grep '^PATCHLEVEL *=' Makefile | awk '{print $3}')
         SUBLEVEL=$(grep '^SUBLEVEL *=' Makefile | awk '{print $3}')
         FULL_VERSION="$VERSION.$PATCHLEVEL.$SUBLEVEL"
+
+        # The config stem declares the kernel sub-version it targets (e.g.
+        # OnePlus-Turbo6X-6.1.157), but most manifests pin a moving OnePlus
+        # branch, which OnePlus can bump underneath us. Fail loudly instead of
+        # silently building the newer kernel under the old config name: rename
+        # the drifted config to the new version, or pin the manifest to the old
+        # sources if the old variant must stay buildable.
+        if [[ "$MODEL_FLAT" =~ -([0-9]+\.[0-9]+\.[0-9]+)$ ]] \
+           && [ "${BASH_REMATCH[1]}" != "$FULL_VERSION" ]; then
+          echo "::error::Config '$MODEL_FLAT' declares kernel ${BASH_REMATCH[1]} but the pinned manifest source is $FULL_VERSION. Update the config name/model to the actual version (and pin the old sources in a separate manifest/config if the old variant must remain buildable)."
+          exit 1
+        fi
         
         cd "$ARTIFACTS_FOLDER"
         echo "$ANDROID_VERSION-$FULL_VERSION" > "${OP_MODEL}_${OP_OS_VERSION}.txt"
@@ -2900,10 +2912,7 @@ runs:
         fi
         
         cp "$IMAGE_PATH" "$AK3_FOLDER/Image"
-        
-        mv "${ARTIFACTS_FOLDER}/${OP_MODEL}_${OP_OS_VERSION}.txt" "$AK3_FOLDER/"
-        # Record the complete built kernel release (uname -r) in the AK3 metadata file
-        echo "$KERNEL_RELEASE" >> "$AK3_FOLDER/${OP_MODEL}_${OP_OS_VERSION}.txt"
+
         cd "$AK3_FOLDER"
         
         sed -i 's/do.check_boot_version=.*/do.check_boot_version=1/' anykernel.sh
@@ -2915,17 +2924,21 @@ runs:
           ;;
         esac
         
-        ZIP_MODEL="$MODEL_FLAT"
         # <ksu_variant>-<ksu_version>-<model>-<kernel_version>-<os_version>-AnyKernel3
         # The artifact name keeps the original short X.Y.Z kernel version on
         # purpose: only the kernel's own release (uname -r) carries the complete
         # stock-format string now (see KERNEL_RELEASE).
         # MODEL_FLAT carries a "-<x.y.z>" kernel sub-version tail for some devices
-        # (e.g. OnePlus-Ace5-RACE-6.1.115); strip it so the version is not printed
-        # twice in the file name next to ZIP_KERNEL_VER.
+        # (e.g. OnePlus-Ace5-RACE-6.1.115); strip any trailing version tail so the
+        # version is not printed twice next to ZIP_KERNEL_VER, even when the
+        # config-stem version has drifted from what the pinned manifest actually
+        # builds (the zip name then tracks the built version).
         ZIP_KERNEL_VER="${KERNEL_FULL_VER#*-}"
-        ZIP_MODEL_SUFFIX="-$ZIP_KERNEL_VER"
-        ZIP_MODEL="${MODEL_FLAT%"$ZIP_MODEL_SUFFIX"}"
+        if [[ "$MODEL_FLAT" =~ ^(.*)-[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          ZIP_MODEL="${BASH_REMATCH[1]}"
+        else
+          ZIP_MODEL="$MODEL_FLAT"
+        fi
         ZIP_NAME="${{ inputs.ksu_type }}-${KSUVER:-unknown}-${ZIP_MODEL}-${ZIP_KERNEL_VER}-${OP_OS_VERSION}-AnyKernel3.zip"
         mkdir -p "$ARTIFACTS_FOLDER"
         echo "kernel_release=$KERNEL_RELEASE" >> "$GITHUB_OUTPUT"
