@@ -1200,9 +1200,15 @@ runs:
         # 2) security_add_hooks() takes a `const struct lsm_id *lsmid` instead of a
         #    `const char *`; the struct lsm_id string field is named `name` or `lsm`
         #    depending on the tree, so the field is detected at build time.
-        # 3) KERNEL_SU_UAPI_VERSION on the builtin branch (2) lags the manager (5) even
-        #    though the interfaces (report_event etc.) already exist; sync the declared
-        #    value from upstream main so the manager stops showing "kernel update required".
+        # 3) KERNEL_SU_UAPI_VERSION on the builtin branch can lag the manager built
+        #    from main; the dynamic sync below closes the gap whenever it reopens.
+        # （2026-10-24 清理：pkg_observer track_throne 标志 / selinux 跳板 /
+        #   manager ioctl 三项一次性兼容已随 SukiSU builtin ce75122b
+        #   （2026-10-21 同步官方 KernelSU）上游修复而移除：pkg_observer 回归
+        #   track_throne(false)，selinux_hide 改为静态函数指针，动态管理器
+        #   ioctl 重构。KSU_KERNEL_DIR 兼容已恢复（见下方第 4 项）：builtin
+        #   的 ifeq filter 只拦绝对路径，拦不住 6.12 OP 树相对的
+        #   "../drivers/kernelsu"，上游并未真正修复。）
         NETLINK_H="$COMMON_KERNEL_FOLDER/include/linux/netlink.h"
         if [ -f "$NETLINK_H" ] && ! grep -q "cb_mutex" "$NETLINK_H"; then
           # builtin 新布局把 kpm 从 kernel/kpm 挪到 kernel/extension/kpm；只认旧路径会让
@@ -1230,65 +1236,29 @@ runs:
           fi
         fi
 
-        # 3b) Dynamic UAPI sync (scripts/susfs_compat/sync_uapi.sh): fetch the
-        #     upstream main uapi/supercall.h, port missing constants/structs into
-        #     the builtin checkout and raise KERNEL_SU_UAPI_VERSION to match;
-        #     for UAPI >= 6 also wire the kernel side (infra/symbol_resolver,
-        #     do_lookup_symbols handler). Content-guarded and idempotent, so
-        #     future upstream UAPI bumps (7, 8, ...) are picked up automatically.
+        # 3) Dynamic UAPI sync (scripts/susfs_compat/sync_uapi.sh): 对齐官方
+        #    main 分支管理器的 UAPI。builtin 现为 6（与 main 持平），本步当前
+        #    为无操作；脚本内容自适应且幂等，main 未来升 7/8 而 builtin 滞后时
+        #    自动补齐缺失常量/标志/ioctl 并抬升 KERNEL_SU_UAPI_VERSION（含
+        #    infra/symbol_resolver 内核侧接线）。
         if [ -f "$GITHUB_WORKSPACE/scripts/susfs_compat/sync_uapi.sh" ]; then
           bash "$GITHUB_WORKSPACE/scripts/susfs_compat/sync_uapi.sh" "$KSU_FOLDER"
         fi
 
-        # 4) builtin 分支合入 PR #3871（pkg_observer 延迟 track_throne 到 task_work）时，
-        #    pkg_observer.c 以 track_throne(TRACK_THRONE_FORCE_SYNCHRONOUS) 调用，
-        #    但 builtin 的 track_throne() 仍为 bool 形参，且没有任何头文件定义该标志
-        #    （BakaSU 的 flags 版 throne_tracker API 未随补丁同步），所有构建在
-        #    ksu.c 聚合编译报 "use of undeclared identifier"。
-        #    改用 track_throne(false)（全量扫描，与 main 分支同函数写法一致）；
-        #    上游修复后按内容检测自动跳过。
-        PKG_OBS="$KSU_FOLDER/kernel/manager/pkg_observer.c"
-        if [ -f "$PKG_OBS" ] && grep -q 'track_throne(TRACK_THRONE_FORCE_SYNCHRONOUS)' "$PKG_OBS"; then
-          sed -i 's/track_throne(TRACK_THRONE_FORCE_SYNCHRONOUS)/track_throne(false)/g' "$PKG_OBS"
-          echo "🔧 compat: pkg_observer track_throne flag replaced with track_throne(false) (builtin PR #3871)"
-        fi
-
-        # 5) builtin 2026-05-29 (5fb0c079) 同步 tiann/KernelSU 的 SELinux 新检测修复后，
-        #    selinux_hide.c 在 >=6.6 分支把 security_dump_masked_av_fn /
-        #    context_struct_compute_av_fn 声明为 extern 函数——上游预期由 services.c
-        #    补丁提供这两个跳板符号（builtin c32094a4），但 SUSFS 内核主补丁只提供
-        #    my_security_compute_av_user，6.6/6.12 的 SukiSU 构建在 vmlinux 链接报
-        #    "undefined symbol: context_struct_compute_av_fn"。
-        #    本仓库 SukiSU 固定检出 builtin（含 susfs=false 的构建），在 services.c
-        #    末尾补上两个跳板；详见
-        #    scripts/susfs_compat/apply_sukisu_selinux_trampolines.sh（幂等，自动跳过）。
-        if [ -f "$GITHUB_WORKSPACE/scripts/susfs_compat/apply_sukisu_selinux_trampolines.sh" ]; then
-          bash "$GITHUB_WORKSPACE/scripts/susfs_compat/apply_sukisu_selinux_trampolines.sh" "$KSU_FOLDER" "$COMMON_KERNEL_FOLDER"
-        fi
-
-        # 6) builtin PR #987（动态多管理器签名授权，a2339013/c95d6e2c）引入的内核侧
-        #    编译错误：supercall.h 新 ioctl 声明少写 struct 关键字 + 错用已存在的
-        #    KSU_IOCTL_KPM 名字（匿名 enum 重复定义，dispatch.c 引用的
-        #    KSU_IOCTL_MANAGER 缺失）；throne_tracker.c crown_manager() 裸 return;
-        #    （a2339013）与 pkg 块内声明块外引用（c95d6e2c）。全部平台在 ksu.c
-        #    聚合编译失败；详见 scripts/susfs_compat/apply_sukisu_manager_ioctl.sh
-        #    （内容检测守卫，幂等，上游修复后自动跳过）。
-        if [ -f "$GITHUB_WORKSPACE/scripts/susfs_compat/apply_sukisu_manager_ioctl.sh" ]; then
-          bash "$GITHUB_WORKSPACE/scripts/susfs_compat/apply_sukisu_manager_ioctl.sh" "$KSU_FOLDER"
-        fi
-
-        # 7) 6.12 GKI 树上 kbuild 给出的 $(src) 已经是 "../drivers/kernelsu"，Makefile 里
-        #    "KSU_KERNEL_DIR := $(srctree)/$(src)" 会再拼一层 srctree，得到
-        #    "../../drivers/kernelsu"，于是 preinit runner 全链路失败：
+        # 4) 6.12 GKI 树（canoe/mt6789/mt6993 等）以 O=out 构建：make -C out 时
+        #    kbuild 给 drivers/kernelsu 的 $(src) 是 "../drivers/kernelsu"（相对），
+        #    builtin Makefile 的 "KSU_KERNEL_DIR := $(srctree)/$(src)"（其 ifeq
+        #    filter 只拦绝对路径）再拼一层相对 $(srctree) 得到
+        #    "../../drivers/kernelsu"，preinit runner 规则在 make 规则求值阶段即报
         #      No rule to make target '../../drivers/kernelsu/preinit/runner/runner.c'
-        #      runner.c:15:10: fatal error: 'nolibc.h' file not found
-        #    改成用 $(wildcard) 判断：拼出来的路径看得到 runner.c 才用它，否则直接用 $(src)。
-        #    5.10/5.15/6.1 命中前者，取值与原来一致。
-        KSU_MK="$KSU_FOLDER/kernel/Makefile"
-        if [ -f "$KSU_MK" ] \
-           && grep -q '^KSU_KERNEL_DIR := \$(srctree)/\$(src)$' "$KSU_MK"; then
-          sed -i 's|^KSU_KERNEL_DIR := \$(srctree)/\$(src)$|KSU_KERNEL_DIR := $(if $(wildcard $(srctree)/$(src)/preinit/runner/runner.c),$(srctree)/$(src),$(src))|' "$KSU_MK"
-          echo "🔧 compat: KSU_KERNEL_DIR no longer double-prefixes \$(srctree) on 6.12 trees"
+        #    改为 $(wildcard) 自校验拼接：拼出的路径看得到 runner.c 才用它，
+        #    否则退回 $(src)；≤6.6 树取值与原来一致（FinaSU 同款修法）。
+        SU_KB="$KSU_FOLDER/kernel/Makefile"
+        if [ -f "$SU_KB" ] && grep -qF 'KSU_KERNEL_DIR := $(srctree)/$(src)' "$SU_KB"; then
+          sed -i 's|^KSU_KERNEL_DIR := \$(srctree)/\$(src)$|KSU_KERNEL_DIR := $(if $(wildcard $(srctree)/$(src)/preinit/runner/runner.c),$(srctree)/$(src),$(src))|' "$SU_KB"
+          grep -qF 'KSU_KERNEL_DIR := $(if $(wildcard $(srctree)/$(src)/preinit/runner/runner.c),$(srctree)/$(src),$(src))' "$SU_KB" \
+            || { echo "::error::SukiSU Makefile KSU_KERNEL_DIR 重写失败（上游结构可能已变化）"; exit 1; }
+          echo "🔧 compat: SukiSU KSU_KERNEL_DIR wildcard-guarded against 6.12 relative \$(src)"
         fi
 
         cd KernelSU/kernel
@@ -1362,13 +1332,6 @@ runs:
         if [ -f "$GITHUB_WORKSPACE/scripts/ksu_post_setup.sh" ]; then
           bash "$GITHUB_WORKSPACE/scripts/ksu_post_setup.sh" "$KSU_FOLDER" bakasu
           echo "✅ BakaSU 版本标识已注入 @LingLuo"
-        fi
-        # 上游 BakaSU 自 48fa4bb 起以无条件 $(error) 暂停 SUSFS 内核构建
-        # （等待 simonpunk 同步最新 selinux_hide 模型）。本仓库已在 SUSFS 补丁
-        # 阶段适配该模型（scripts/susfs_compat/apply_selinux_new_model.sh），
-        # 这里替换为上游预期的按内核版本门控，详见 scripts/bakasu_compat/resume_susfs.sh
-        if [ -f "$GITHUB_WORKSPACE/scripts/bakasu_compat/resume_susfs.sh" ]; then
-          bash "$GITHUB_WORKSPACE/scripts/bakasu_compat/resume_susfs.sh" "$KSU_FOLDER"
         fi
         cd KernelSU/kernel
 
@@ -1519,6 +1482,32 @@ runs:
           && grep -q "^KSU_SECOND_SIGNATURE_RELEASE := 1" KernelSU/kernel/Kbuild \
           || { echo "::error::Kbuild 注入失败（锚点行缺失，FinaSU 上游 Kbuild 结构可能已变化）"; exit 1; }
 
+        # 6.12 GKI 树（canoe/mt6789/mt6993 等）以 O=out 构建：make -C out 时
+        # kbuild 给 drivers/kernelsu 的 $(src) 是 "../drivers/kernelsu"（相对），
+        # FinaSU Kbuild 的 "KSU_KERNEL_DIR := $(srctree)/$(src)"（其 ifeq filter
+        # 只拦绝对路径）再拼一层相对 $(srctree) 得到 "../../drivers/kernelsu"，
+        # preinit runner 规则在 make 规则求值阶段即报
+        #   No rule to make target '../../drivers/kernelsu/preinit/runner/runner.c'
+        # （此前两步法补丁强制 KSU_NO_PREINIT 关掉 preinit 故未暴露；切到内置
+        # SUSFS 保留 kprobe preinit 后必现）。改为 $(wildcard) 自校验拼接
+        # （SukiSU builtin 同款手法）：拼出的路径看得到 runner.c 才用它，否则
+        # 退回 $(src)；≤6.6 树 $(src) 相对 + $(srctree) 绝对，取值与原来一致。
+        FINA_KB="$KSU_FOLDER/kernel/Kbuild"
+        if [ -f "$FINA_KB" ] && grep -qF 'KSU_KERNEL_DIR := $(srctree)/$(src)' "$FINA_KB"; then
+          sed -i 's|^KSU_KERNEL_DIR := \$(srctree)/\$(src)$|KSU_KERNEL_DIR := $(if $(wildcard $(srctree)/$(src)/preinit/runner/runner.c),$(srctree)/$(src),$(src))|' "$FINA_KB"
+          grep -qF 'KSU_KERNEL_DIR := $(if $(wildcard $(srctree)/$(src)/preinit/runner/runner.c),$(srctree)/$(src),$(src))' "$FINA_KB" \
+            || { echo "::error::FinaSU Kbuild KSU_KERNEL_DIR 重写失败（上游 Kbuild 结构可能已变化）"; exit 1; }
+          echo "🔧 compat: FinaSU KSU_KERNEL_DIR wildcard-guarded against 6.12 relative \$(src)"
+        fi
+
+        # 内核完整版本号（KSU_VERSION_FULL，形如 v<tag>-<sha>@<branch>）分支段校准：
+        # 工作流以 --detach 检出（master / 管理器对齐提交），rev-parse --abbrev-ref
+        # 返回 "HEAD"，管理器「内核完整版本」显示 v1.0.x-xxxx@HEAD。
+        # 与 SukiSU/BakaSU 一致替换为品牌名 @LingLuo（ksu_post_setup.sh finasu 模式）
+        bash "$GITHUB_WORKSPACE/scripts/ksu_post_setup.sh" "$KSU_FOLDER" finasu
+        grep -qF 'KSU_VERSION_FULL := v$(if $(KSU_VERSION_TAG),$(KSU_VERSION_TAG),unknown)-$(KSU_VERSION_SHA)@LingLuo' KernelSU/kernel/Kbuild \
+          || { echo "::error::FinaSU 内核完整版本号分支段替换失败（上游 Kbuild 版本行可能已变化）"; exit 1; }
+
         KSU_COMMIT_SHA=$(git -C KernelSU rev-parse HEAD)
         COMMITS=$(git -C KernelSU rev-list --count HEAD)
         KSU_VERSION=$(expr 30000 + $COMMITS)
@@ -1548,9 +1537,41 @@ runs:
         echo "SusFS Version: $susfs_version"
         
         if [ "${{ inputs.ksu_type }}" == "FinaSU" ]; then
-          # FinaSU 内核无内置 SUSFS 集成：应用 susfs4ksu 官方 10_enable 补丁 +
-          # 本仓库维护的漂移修复（两步法，见 scripts/finasu_compat/apply.sh）
-          SUSFS4KSU="$SUSFS_FOLDER" bash "$GITHUB_WORKSPACE/scripts/finasu_compat/apply.sh" "$KSU_FOLDER"
+          # FinaSU 5b83330b（2026-10-23 合入 master）起自带内核侧 SUSFS 集成：
+          # kernel/Kconfig 的 KSU_SUSFS 菜单、kernel/extension/susfs.c 提供的
+          # 内核侧补丁兼容入口点（ksu_handle_* / my_* / fake_status 符号）以及
+          # Kbuild 的 kernelsu-$(CONFIG_KSU_SUSFS)（见 FinaSU
+          # docs/builtin-integration.md）。上游明确要求驱动树不再套用
+          # 10_enable_susfs_for_ksu.patch —— 多数 hunk 已内置、钩子模型不同，
+          # 强套必然 reject（master 重构后 Kconfig/adb_root.c/sucompat.h/
+          # setuid_hook.h/selinux/* 七处漂移）。与 SukiSU/BakaSU 同路子：
+          # defconfig 打开 CONFIG_KSU_SUSFS 即可（下方统一片段已含）。
+          # 按检出内容检测；master / 管理器对齐提交均含内置集成，
+          # 检测不到即固定到了过老提交，显式报错而不是静默丢掉 SUSFS。
+          if [ -f "$KSU_FOLDER/kernel/extension/susfs.c" ] && \
+             grep -q '^config KSU_SUSFS' "$KSU_FOLDER/kernel/Kconfig"; then
+            echo "FinaSU built-in SUSFS integration detected (kernel/extension/susfs.c), skipping KSU-tree SUSFS patch"
+            # 防回归校验（FinaSU scripts/check-susfs-upstream.sh 的等价检查）：
+            # 内核侧 50 号补丁引用的 KSU 侧符号必须全部由 FinaSU 内置实现提供，
+            # 缺失即 vmlinux 链接失败（undefined symbol），在此提前显式报错。
+            KERNEL_SIDE_PATCH="$SUSFS_FOLDER/kernel_patches/50_add_susfs_in_${SUSFS_KERNEL_BRANCH}.patch"
+            [ -f "$KERNEL_SIDE_PATCH" ] || { echo "::error::内核侧 SUSFS 补丁不存在: $KERNEL_SIDE_PATCH"; exit 1; }
+            missing_sym=0
+            for sym in $(grep -oE '\b(ksu|my)_[A-Za-z0-9_]+|\bfake_status\b|\binitialize_fake_status\b' \
+                           "$KERNEL_SIDE_PATCH" | sort -u); do
+              if ! grep -RqsF --include='*.c' --include='*.h' -- "$sym" "$KSU_FOLDER/kernel"; then
+                echo "::error::FinaSU 内置 SUSFS 实现缺少内核侧补丁引用的符号: $sym"
+                missing_sym=1
+              fi
+            done
+            [ "$missing_sym" -eq 0 ] || exit 1
+            echo "FinaSU built-in SUSFS symbol check passed"
+          else
+            echo "::error::FinaSU 检出缺少内置 SUSFS 集成（kernel/extension/susfs.c / KSU_SUSFS Kconfig 不存在）。"
+            echo "::error::FinaSU 5b83330b（2026-10-23）起自带 SUSFS 集成，旧的 10_enable + 漂移补丁两步法已随上游重构废弃删除。"
+            echo "::error::请固定到 5b83330b 或之后的提交（master / 官方管理器对齐提交均满足），或关闭 SUSFS。"
+            exit 1
+          fi
         else
           # SukiSU (builtin) / BakaSU (main) 内核代码已内置 SUSFS 集成 (config KSU_SUSFS)，
           # 无需再对 KSU 树打 10_enable_susfs_for_ksu.patch，仅保留内核侧 SUSFS 补丁。
@@ -1648,11 +1669,12 @@ runs:
           echo "Added VMA_PAD_START fallback definition to fs/proc/task_mmu.c"
         fi
 
-        # 把 SUSFS 的 SELinux 集成切换到新 selinux_hide 模型（BakaSU 48fa4bb 起
-        # 暂停构建的根因）：<6.6 的 &fake_state 调用切换为 backup_sepolicy +
-        # 8 参 security_context_to_sid_with_policy（新内核已删除 fake_state 定义），
+        # 把 SUSFS 的 SELinux 集成切换到新 selinux_hide 模型（BakaSU 同步
+        # tiann 上游新模型后已删除 fake_state 定义）：<6.6 的 &fake_state
+        # 调用切换为 backup_sepolicy + 8 参 security_context_to_sid_with_policy，
         # >=6.6 的 6 参调用/声明归一化为 8 参（新模型签名）。脚本按 KernelSU
-        # 实际形态自动跳过旧模型检出；幂等。FinaSU 由 finasu_compat 处理，跳过。
+        # 实际形态自动跳过旧模型检出；幂等。FinaSU 内置 SUSFS 集成自带新版
+        # selinux_hide（CONFIG_KSU_SUSFS 下导出 my_* 符号），跳过。
         if [ "${{ inputs.ksu_type }}" != "FinaSU" ] && [ -f "$GITHUB_WORKSPACE/scripts/susfs_compat/apply_selinux_new_model.sh" ]; then
           bash "$GITHUB_WORKSPACE/scripts/susfs_compat/apply_selinux_new_model.sh" "$KSU_FOLDER"
         fi

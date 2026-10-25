@@ -179,7 +179,15 @@ on:
           - SukiSU
           - BakaSU
           - FinaSU
-        default: BakaSU
+        default: FinaSU
+      build_channel:
+        description: '构建通道（正式=官方 Release 发行版，最新=上游最新提交）'
+        required: false
+        type: choice
+        options:
+          - "正式 (Release)"
+          - "最新 (HEAD)"
+        default: "正式 (Release)"
       custom_version:
         description: '自定义版本名（可选）'
         required: false
@@ -670,3 +678,4 @@ jobs:
     uses: ./.github/workflows/get-manager.yml
     with:
       ksu_variant: ${{ inputs.ksu_variant }}
+      build_channel: ${{ inputs.build_channel }}
