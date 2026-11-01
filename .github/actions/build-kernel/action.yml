@@ -1423,6 +1423,17 @@ runs:
           ln -s ../uapi KernelSU/kernel/uapi
           echo "Linked KernelSU/uapi -> KernelSU/kernel/uapi for in-tree build"
         fi
+        # FinaSU 固定使用 SUSFS Inline 后端；所选提交必须包含该后端。
+        if ! grep -qE '^[[:space:]]*config KSU_HOOK_SUSFS_INLINE' KernelSU/kernel/Kconfig || \
+           [ ! -x KernelSU/kernel/tools/check_susfs_inline.sh ]; then
+          echo "::error::选定的 FinaSU 提交不支持 SUSFS Inline，请使用最新构建通道或更新的提交"
+          exit 1
+        fi
+        if [ "${OP_SUSFS}" != "true" ]; then
+          echo "::error::SUSFS Inline 需要设备配置启用 SUSFS"
+          exit 1
+        fi
+        HOOK_CONFIG="CONFIG_KSU_HOOK_SUSFS_INLINE=y"
         # 6.12 树上 drivers/kernelsu/include 的 -I 未生效（klog.h / arch.h / util.h
         # 走 "klog.h" 形式引用会 fatal error not found），而 -I$(KSU_KERNEL_DIR)
         # 本身是可用的。把 include/ 下的头文件在驱动根目录补一层同名软链，
@@ -1443,6 +1454,7 @@ runs:
         cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF
         CONFIG_KSU=y
         CONFIG_KALLSYMS_ALL=y
+        $HOOK_CONFIG
         EOF
 
         # 将 FinaSU 官方管理器签名证书注入内核第二信任槽（EXPECTED_SIZE2/HASH2）。

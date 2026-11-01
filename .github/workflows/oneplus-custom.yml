@@ -420,6 +420,9 @@ jobs:
             echo "|---------|-------|"
             echo "| Device | \`${{ steps.set-matrix.outputs.model_display }}\` |"
             echo "| KernelSU | \`${{ inputs.ksu_variant }}\` @ \`${{ inputs.ksu_variant == 'SukiSU' && 'builtin' || (inputs.ksu_variant == 'FinaSU' && 'master' || 'main') }}\` |"
+            if [ "${{ inputs.ksu_variant }}" = "FinaSU" ]; then
+              echo "| FinaSU Hook | \`SUSFS Inline\` |"
+            fi
             echo "| Re-Kernel | ${{ inputs.use_rekernel && '✅ enabled' || '❌ disabled' }} |"
             echo "| Optimization | \`${{ inputs.optimize_level }}\` |"
             echo "| Droidspaces & NTSync | ${{ inputs.enable_droidspaces_ntsync && '✅ enabled' || '❌ disabled' }} |"

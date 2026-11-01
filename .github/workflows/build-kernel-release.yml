@@ -1085,6 +1085,7 @@ jobs:
           # 内核侧已对齐官方最新上传构建提交时，展示该提交而非分支
           # （BakaSU：内核侧直接检出该提交；SukiSU：builtin 检出的版本来源改写为该提交）
           RK_KSU_COMMIT="${{ needs.get-manager.outputs.ksuCommit }}"
+          KSU_BRANCH="${{ needs.get-manager.outputs.ksuBranch }}"
           if [[ "$RK_KSU_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
             ksu_display="${RK_KSU_COMMIT:0:7}"
             case "$ksu_type" in
@@ -1094,7 +1095,7 @@ jobs:
                 ;;
               FinaSU)
                 KSU_REPO_URL="https://github.com/LyraVoid/FinaSU/commit/$RK_KSU_COMMIT"
-                ksu_ref="master @ ${RK_KSU_COMMIT:0:8}"
+                ksu_ref="${KSU_BRANCH:-master} @ ${RK_KSU_COMMIT:0:8}"
                 ;;
               *)
                 KSU_REPO_URL="https://github.com/Baka-SU/BakaSU/commit/$RK_KSU_COMMIT"
@@ -1116,7 +1117,6 @@ jobs:
           # Common features across ALL devices in this build (intersection)
           CF=()
           jq -e 'all(.[]; (.hmbird   // false) == true)' <<< "$JSON_BUILD_DATA" >/dev/null 2>&1 && CF+=("🐦 HMBIRD")
-          jq -e 'all(.[]; (.susfs    // false) == true)' <<< "$JSON_BUILD_DATA" >/dev/null 2>&1 && CF+=("ྎ SusFS")
           jq -e 'all(.[]; (.bbr      // false) == true)' <<< "$JSON_BUILD_DATA" >/dev/null 2>&1 && CF+=("🚀 BBR")
           jq -e 'all(.[]; (.bbr3     // false) == true)' <<< "$JSON_BUILD_DATA" >/dev/null 2>&1 && CF+=("🚀 BBRv3")
           jq -e 'all(.[]; (.bbg      // false) == true)' <<< "$JSON_BUILD_DATA" >/dev/null 2>&1 && CF+=("🛡️ BBG")
