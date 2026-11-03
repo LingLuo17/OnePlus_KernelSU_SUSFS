@@ -22,7 +22,7 @@ on:
         description: "官方 Manager 构建的实测版本号"
         value: ${{ jobs.get_ksu_manager.outputs.managerVer }}
       ksuCommit:
-        description: "内核侧对齐用的提交 SHA（正式=Release 标签/官方构建提交；最新=SukiSU/BakaSU 默认分支 HEAD，FinaSU 最新构建提交）"
+        description: "内核侧对齐用的提交 SHA（正式=Release 标签/官方构建提交；最新=SukiSU 默认分支 HEAD，BakaSU/FinaSU 最新构建提交）"
         value: ${{ jobs.get_ksu_manager.outputs.ksuCommit }}
       ksuBranch:
         description: "内核侧对齐提交所在的分支或 Release 标签（发布说明展示用）"

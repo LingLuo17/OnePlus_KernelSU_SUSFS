@@ -40,7 +40,7 @@ on:
           - FinaSU
         default: FinaSU
       build_channel:
-        description: '构建通道（正式=官方 Release 发行版，最新=上游最新构建；FinaSU 最新取 build-manager 构建）'
+        description: '构建通道（正式=官方 Release 发行版，最新=上游最新构建；BakaSU/FinaSU 最新取 build-manager 构建）'
         required: false
         type: choice
         options:

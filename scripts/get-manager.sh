@@ -170,11 +170,16 @@ if [ "$VARIANT" == "FinaSU" ] && [ "$PIN_MODE" != "head" ]; then
 fi
 
 # ==================== C. SukiSU / BakaSU / FinaSU(latest)：官方 CI 构建的管理器 ====================
-# 最新通道：SukiSU/BakaSU 先锁定默认分支 HEAD，并把管理器限定为「版本与该 HEAD 一致」的构建，
-# 避免出现内核 35249 / 管理器 35248 这种版本错位。FinaSU 以最新构建产物的提交为准。
+# 最新通道：SukiSU 先锁定默认分支 HEAD，并把管理器限定为「版本与该 HEAD 一致」的构建，
+# 避免出现内核 35249 / 管理器 35248 这种版本错位。BakaSU / FinaSU 不锁默认分支 HEAD，
+# 直接取 build-manager.yml 按创建时间倒序的最新成功构建，内核锁定该构建提交。
+LATEST_PICK_BUILD=0
+if [ "$VARIANT" = "BakaSU" ] || [ "$VARIANT" = "FinaSU" ]; then
+  LATEST_PICK_BUILD=1
+fi
 HEAD_SHA=""
 HEAD_VERSION=""
-if [ "$PIN_MODE" = "head" ] && [ "$VARIANT" != "FinaSU" ]; then
+if [ "$PIN_MODE" = "head" ] && [ "$LATEST_PICK_BUILD" = 0 ]; then
   HEAD_SHA=$(git -C KernelSU rev-parse "origin/${EXPECTED_BRANCH}^{commit}" 2>/dev/null || true)
   if [ -z "$HEAD_SHA" ]; then
     HEAD_SHA=$(git ls-remote "https://github.com/$REPO.git" "refs/heads/$EXPECTED_BRANCH" 2>/dev/null | awk '{print $1}')
@@ -270,8 +275,8 @@ fi
 
 # 去重后排序：
 #   正式 → 默认分支构建按时间倒序
-#   最新 → SukiSU/BakaSU 优先「版本与 HEAD 一致」的构建，其次默认分支，最后其他分支
-#          FinaSU 直接按构建时间倒序（最新 build-manager.yml 产物即目标）
+#   最新 → SukiSU 优先「版本与 HEAD 一致」的构建，其次默认分支，最后其他分支
+#          BakaSU/FinaSU 直接按构建时间倒序（最新 build-manager.yml 产物即目标）
 CAND_UNIQ=$(mktemp)
 sort -u -t$'\t' -k2,2 "$CAND_FILE" > "$CAND_UNIQ"
 rm -f "$CAND_FILE"
@@ -300,7 +305,7 @@ fi
 
 ORDERED_FILE=$(mktemp)
 # 候选行格式：创建时间 \t 构建ID \t 提交 \t 分支（优先级在 awk 里补在第 1 列）
-if [ "$VARIANT" == "FinaSU" ] && [ "$PIN_MODE" = "head" ]; then
+if [ "$LATEST_PICK_BUILD" = 1 ] && [ "$PIN_MODE" = "head" ]; then
   sort -t$'\t' -k1,1r "$CAND_UNIQ" \
     | awk -F'\t' '{ print "0\t" $0 }' > "$ORDERED_FILE"
 else
@@ -411,8 +416,8 @@ echo "managerVer=$MANAGER_VERSION" >> $GITHUB_OUTPUT
 
 # 内核提交锁定策略：
 #   正式 → 锁定该构建提交（版本与管理器严格一致）
-#   最新 → SukiSU/BakaSU 锁定选择时刻的默认分支 HEAD；FinaSU 锁定产出管理器的构建提交
-if [ "$PIN_MODE" = "head" ] && [ -n "$HEAD_SHA" ] && [ "$VARIANT" != "FinaSU" ]; then
+#   最新 → SukiSU 锁定选择时刻的默认分支 HEAD；BakaSU/FinaSU 锁定产出管理器的构建提交
+if [ "$PIN_MODE" = "head" ] && [ -n "$HEAD_SHA" ] && [ "$LATEST_PICK_BUILD" = 0 ]; then
   if [ -n "$HEAD_VERSION" ] && [ "$MANAGER_VERSION" != "$HEAD_VERSION" ]; then
     echo "::warning::最新通道：未找到与 $EXPECTED_BRANCH HEAD 版本 $HEAD_VERSION 一致的管理器，回退到 $MANAGER_VERSION"
   fi
