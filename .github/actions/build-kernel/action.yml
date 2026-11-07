@@ -2557,7 +2557,9 @@ runs:
             | clang --target=aarch64-linux-gnu -O2 "$@" -x c - -c -o /dev/null 2>/dev/null; then
             KCFLAGS="${KCFLAGS:+$KCFLAGS }$*"
           else
-            echo "::warning::clang rejected flag(s), skipping: $*"
+            # Expected on older vendor toolchains: keep it out of annotations
+            # so every kernel job does not get an MLGO warning.
+            echo "Toolchain rejected flag(s), skipping: $*"
           fi
         }
 
