@@ -38,7 +38,7 @@ on:
         value: ${{ jobs.get_ksu_manager.outputs.managerCertHash }}
 jobs:
   get_ksu_manager:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     continue-on-error: true
     outputs:
       # 输出1: KSU版本号
