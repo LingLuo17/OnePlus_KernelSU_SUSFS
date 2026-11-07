@@ -59,6 +59,11 @@ inputs:
     required: false
     type: string
     default: O2
+  mlgo:
+    description: 'Enable ML compiler-guided optimization (regalloc advisor; skipped when the toolchain rejects the flag)'
+    required: false
+    type: boolean
+    default: true
   clean:
     description: 'Force clean build without ccache acceleration'
     required: false
@@ -180,6 +185,7 @@ runs:
         ntsync="$OP_NTSYNC"
         blacklist_modules="$OP_BLACKLIST_MODULES"
         optimize='${{ inputs.optimize_level }}'
+        mlgo='${{ inputs.mlgo }}'
         
         errors=()
         
@@ -328,6 +334,11 @@ runs:
         case "$optimize" in
           O2|O3) ;;
           *) errors+=("optimize_level must be O2 or O3. Got: '$optimize'"); ;;
+        esac
+
+        case "$mlgo" in
+          true|false) ;;
+          *) errors+=("mlgo must be 'true' or 'false'. Got: '$mlgo'"); ;;
         esac
         
         if [ ${#errors[@]} -ne 0 ]; then
@@ -2538,7 +2549,22 @@ runs:
         MAP="-fdebug-prefix-map=${WORKSPACE}=."
         MPMAP="-fmacro-prefix-map=${WORKSPACE}=."
         FPMAP="-ffile-prefix-map=${WORKSPACE}=."
-        
+
+        # add_kcflag() - append kcflags without failing the build when the
+        # toolchain rejects a flag (probed with a tiny aarch64 compile)
+        add_kcflag() {
+          if printf 'int g(int a){return a+1;} int f(int a){return g(a)*2;}\n' \
+            | clang --target=aarch64-linux-gnu -O2 "$@" -x c - -c -o /dev/null 2>/dev/null; then
+            KCFLAGS="${KCFLAGS:+$KCFLAGS }$*"
+          else
+            echo "::warning::clang rejected flag(s), skipping: $*"
+          fi
+        }
+
+        if [ "${{ inputs.mlgo }}" = "true" ]; then
+          add_kcflag -mllvm -regalloc-enable-advisor=release
+        fi
+
         export KCFLAGS="${KCFLAGS:-} $MAP $MPMAP $FPMAP -no-canonical-prefixes -fdiagnostics-color=never -Qunused-arguments -Wno-unused-command-line-argument -D__ANDROID_COMMON_KERNEL__"
         export KCPPFLAGS="${KCPPFLAGS:-} $MAP $MPMAP $FPMAP"
         

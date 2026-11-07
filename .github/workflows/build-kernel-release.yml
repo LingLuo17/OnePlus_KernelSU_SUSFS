@@ -63,6 +63,11 @@ on:
         type: choice
         options: [O2, O3]
         default: O2
+      mlgo:
+        description: '启用 ML 编译器优化（regalloc advisor；工具链不支持时自动跳过）'
+        required: false
+        type: boolean
+        default: true
       clean_build:
         description: 'Clean build（不使用 ccache 缓存）'
         type: boolean
@@ -781,6 +786,7 @@ jobs:
           # （分支头=最新），命中 toolchain-cache 的 susfs-<branch>.tar.gz 归档；
           # 传 SHA 会使缓存 URL 变成 susfs-<40位SHA>.tar.gz 而永远 404
           optimize_level: ${{ inputs.optimize_level }}
+          mlgo: ${{ inputs.mlgo }}
           build_timestamp: ${{ inputs.build_timestamp }}
           clean: ${{ inputs.clean_build }}
           debug: ${{ inputs.debug }}
@@ -1040,6 +1046,7 @@ jobs:
           ksu_resolved_hash="${{ needs.set-op-model.outputs.ksu_resolved_hash }}"
           
           OPTIMIZE_LEVEL="${{ inputs.optimize_level }}"
+          MLGO="${{ inputs.mlgo }}"
           CLEAN_BUILD="${{ inputs.clean_build }}"
           
           # Hash map for GKI version
@@ -1170,6 +1177,7 @@ jobs:
           | Re-Kernel 驱动 | ${{ inputs.use_rekernel && '开启' || '未开启' }} |
           | Droidspaces & NTSync | ${{ inputs.enable_droidspaces_ntsync && '开启' || '未开启' }} |
           | 优化级别 | $OPTIMIZE_LEVEL |
+          | MLGO | $( [ "$MLGO" = "true" ] && echo "开启" || echo "未开启" ) |
           | 功能 | $COMMON_FEATURES |
           EOF
           

@@ -222,6 +222,11 @@ on:
           - O2
           - O3
         default: O2
+      mlgo:
+        description: '启用 ML 编译器优化（regalloc advisor；工具链不支持时自动跳过）'
+        required: false
+        type: boolean
+        default: true
       mirror_toolchains:
         description: '构建前同步工具链（自动检查并补齐缺失缓存，已有缓存时秒级跳过）'
         required: false
@@ -426,6 +431,7 @@ jobs:
             fi
             echo "| Re-Kernel | ${{ inputs.use_rekernel && '✅ enabled' || '❌ disabled' }} |"
             echo "| Optimization | \`${{ inputs.optimize_level }}\` |"
+            echo "| MLGO | ${{ inputs.mlgo && '✅ enabled' || '❌ disabled' }} |"
             echo "| Droidspaces & NTSync | ${{ inputs.enable_droidspaces_ntsync && '✅ enabled' || '❌ disabled' }} |"
             echo "| Toolchain sync | ${{ inputs.mirror_toolchains && '✅ enabled' || '❌ disabled' }} |"
             echo "| Custom version | \`${{ inputs.custom_version || 'auto (-<android> KMI tag)' }}\` |"
@@ -643,6 +649,7 @@ jobs:
           ksu_cert_hash: ${{ needs.get-manager.outputs.managerCertHash }}
           custom_version: ${{ inputs.custom_version }}
           optimize_level: ${{ inputs.optimize_level }}
+          mlgo: ${{ inputs.mlgo }}
           build_timestamp: ${{ inputs.build_timestamp }}
           cache_stagger: false
           github_token: ${{ secrets.GITHUB_TOKEN }}
