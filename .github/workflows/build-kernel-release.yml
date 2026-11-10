@@ -48,19 +48,15 @@ on:
           - "最新 (HEAD)"
         default: "正式 (Release)"
       use_rekernel:
-        description: '启用 Re-Kernel 驱动（默认关闭）'
+        description: '启用 Re-Kernel 驱动'
         required: false
         type: boolean
         default: false
       enable_droidspaces_ntsync:
-        description: 'Droidspaces 容器 & NTSync（auto=沿用设备配置，推荐）'
+        description: '启用 Droidspaces 容器 & NTSync'
         required: false
-        type: choice
-        default: auto
-        options:
-          - auto
-          - 'true'
-          - 'false'
+        type: boolean
+        default: false
       optimize_level:
         description: '编译器优化级别'
         required: true
@@ -292,17 +288,14 @@ jobs:
           # Inject ksu_resolved_hash into each device in the matrix
           merged_matrix=$(echo "$merged_matrix" | jq  --arg resolved_sha "$resolved_sha" 'map(.ksu_resolved_hash = $resolved_sha)')
 
-          # Droidspaces & NTSync 开关：留空（auto）时沿用 configs/*.json 的设定，
-          # 只有明确选 true/false 时才整体覆写（与自定义构建保持一致）。
-          # 旧行为是无条件用默认值 false 覆写，会关掉 12R A16 等配置里的
-          # "ds": true，导致 DEVTMPFS/SYSVIPC 等开机必需项缺失。
-          ds_override='${{ inputs.enable_droidspaces_ntsync }}'
-          if [ -n "$ds_override" ] && [ "$ds_override" != "auto" ]; then
-            merged_matrix=$(echo "$merged_matrix" | jq --argjson dn "$ds_override" 'map(.ds = $dn | .ntsync = $dn)')
-            echo "Droidspaces/NTSync override: $ds_override"
-          else
-            echo "Droidspaces/NTSync override: auto (per-device from config json)"
-          fi
+          # Droidspaces & NTSync 合并开关（复选框，默认不勾选）。
+          # 只控制容器命名空间组（USER_NS/PID_NS/MACVLAN）与 NTSYNC；
+          # 开机必需的 DEVTMPFS / SYSVIPC / POSIX_MQUEUE / IPC_NS 在 action 里
+          # 已改为无条件写入，因此不勾选也能正常开机。
+          dn=false
+          [ "${{ inputs.enable_droidspaces_ntsync }}" = "true" ] && dn=true
+          merged_matrix=$(echo "$merged_matrix" | jq --argjson dn "$dn" 'map(.ds = $dn | .ntsync = $dn)')
+          echo "Droidspaces/NTSync override: $dn"
 
           # SUSFS hash fetch
           GITLAB_PROJECT_PATH="simonpunk/susfs4ksu"
@@ -1032,14 +1025,11 @@ jobs:
           declare -A device_info
           
           # matrix.json holds this build's devices (pre-override config);
-          # ds/ntsync only get overwritten when the user explicitly picked
-          # true/false — otherwise keep each device's own config value.
-          ds_flag='${{ inputs.enable_droidspaces_ntsync }}'
-          if [ -n "$ds_flag" ] && [ "$ds_flag" != "auto" ]; then
-            JSON_BUILD_DATA=$(jq -c --argjson dn "$ds_flag" 'map(.ds = $dn | .ntsync = $dn)' ./downloaded-artifacts/matrix.json)
-          else
-            JSON_BUILD_DATA=$(jq -c '.' ./downloaded-artifacts/matrix.json)
-          fi
+          # ds/ntsync are global overrides, apply them here to match reality.
+          # 开机必需项不受影响，详见 action 里 Add Droidspaces support 的分层说明。
+          dn=false
+          [ "${{ inputs.enable_droidspaces_ntsync }}" = "true" ] && dn=true
+          JSON_BUILD_DATA=$(jq -c --argjson dn "$dn" 'map(.ds = $dn | .ntsync = $dn)' ./downloaded-artifacts/matrix.json)
           
           for file in $(find downloaded-artifacts -maxdepth 1 -name "*-AnyKernel3.zip" -type f | sort); do
             if [ -f "$file" ]; then
@@ -1190,7 +1180,7 @@ jobs:
           | 挂载方式 | Magic Mount |
           | LTO | thin |
           | Re-Kernel 驱动 | ${{ inputs.use_rekernel && '开启' || '未开启' }} |
-          | Droidspaces & NTSync | ${{ inputs.enable_droidspaces_ntsync == 'auto' && '沿用设备配置' || (inputs.enable_droidspaces_ntsync == 'true' && '强制开启' || '强制关闭') }} |
+          | Droidspaces & NTSync | ${{ inputs.enable_droidspaces_ntsync && '开启' || '未开启' }} |
           | 优化级别 | $OPTIMIZE_LEVEL |
           | MLGO | $( [ "$MLGO" = "true" ] && echo "开启" || echo "未开启" ) |
           | 功能 | $COMMON_FEATURES |

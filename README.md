@@ -48,7 +48,7 @@ This repository builds **OnePlus (Oppo/Realme) device kernels** with GitHub Acti
 | 🌐 TTL Target Support | Network packet manipulation |
 | ⚡ TMPFS XATTR / POSIX ACL | Extended TMPFS support for meta modules and Mountify |
 | </> Unicode Bypass Fix | Prevent path traversal and other detections using non-printable Unicode codepoints |
-| 🐳 Droidspaces & NTSync | Optional container support with NTSync kernel compatibility (toggle in custom build) |
+| 🐳 Droidspaces & NTSync | Optional container support with NTSync kernel compatibility |
 
 ## 🚀 Usage
 
@@ -168,7 +168,7 @@ A commit is a hash string representing the state of a repository at a certain po
 | 🌐 TTL 目标支持 | 网络数据包操作 |
 | ⚡ TMPFS XATTR / POSIX ACL | 扩展 TMPFS 支持，用于元模块与 Mountify |
 | </> Unicode 绕过修复 | 防止使用不可打印的 Unicode 码点进行路径穿越及其他检测 |
-| 🐳 Droidspaces & NTSync | 可选容器支持及 NTSync 内核兼容补丁（自定义构建中可开关） |
+| 🐳 Droidspaces & NTSync | 可选容器支持及 NTSync 内核兼容补丁 |
 
 ## 🚀 使用方法
 

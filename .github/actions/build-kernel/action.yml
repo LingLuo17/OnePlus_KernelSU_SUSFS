@@ -2219,13 +2219,24 @@ runs:
 
     - name: Add Droidspaces support
       shell: bash
-      # 无条件执行：本块追加的 CONFIG_DEVTMPFS / SYSVIPC / POSIX_MQUEUE /
-      # USER_NS / PID_NS / MACVLAN 与厂商原厂 defconfig 完全一致（均为 =y），
-      # 是 Android first-stage mount 正常工作的必需项，不属于可选容器特性。
-      # 此前该块被 OP_DS 门控，而工作流的 enable_droidspaces_ntsync 默认
-      # false 会用 jq 强制覆写 configs/*.json 里的 "ds": true，导致这些选项
-      # 全部缺失 —— 编译产出的 Image 刷入后卡开机第一屏（ueventd 拿不到
-      # /dev/block/by-name/*，first-stage mount 失败）。
+      # 本步骤分三层，三层互相独立，请不要合并回去：
+      #
+      # 1) kABI 补丁 —— 无条件应用。这些补丁只把 sysv_sem / sysv_shm /
+      #    mq_bytes 重排进 ANDROID_KABI_RESERVE 槽位，使开启 SYSVIPC /
+      #    POSIX_MQUEUE 后 struct task_struct / user_struct 的总大小不变。
+      #    补丁内部全部由 #ifdef CONFIG_* 包裹：CONFIG 关闭时自动退化为
+      #    原布局，等于空补丁。因此无论容器开关如何都必须打 —— 若漏打而
+      #    SYSVIPC 又被别处 select 打开，结构体会变大，厂商预编译 .ko 直接
+      #    bootloop。
+      #
+      # 2) 开机与硬件基线 —— 无条件写入。DEVTMPFS 缺失会让 ueventd 建不出
+      #    /dev/block/by-name/*，first-stage mount 失败卡第一屏；SYSVIPC /
+      #    POSIX_MQUEUE / IPC_NS 是厂商原厂基线（=y），且与已实测能开机的
+      #    镜像一致，改动它们会移动 task_struct 字段偏移，风险大于收益。
+      #
+      # 3) 容器隔离 —— 受 OP_DS 控制。USER_NS / PID_NS / MACVLAN 是容器
+      #    命名空间与网络隔离的核心，缺 PID_NS 时容器连独立进程树都建不出，
+      #    而开机、蓝牙、厂商 IPC 依赖全部不受影响。
       run: |
         echo "::group::Add Droidspaces Support"
         set -euo pipefail
@@ -2255,17 +2266,39 @@ runs:
         echo "Patch to fix kernel panic caused by oplus_bsp_midas"
         patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/common/droidspaces/0001-Return-ghost-task-if-task-is-null-and-is-requested-b.patch"
         
+        # ── 第 2 层：开机与硬件基线，无条件写入 ───────────────────────────
+        echo "Applying boot-critical and stock-baseline configs (always on)"
         cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF
-        CONFIG_SYSVIPC=y
         CONFIG_DEVTMPFS=y
-        CONFIG_PID_NS=y
+        CONFIG_SYSVIPC=y
         CONFIG_POSIX_MQUEUE=y
+        CONFIG_IPC_NS=y
         CONFIG_NETFILTER_XT_TARGET_REJECT=y
         CONFIG_NETFILTER_XT_TARGET_LOG=y
         CONFIG_NETFILTER_XT_MATCH_RECENT=y
+        EOF
+        
+        # ── 第 3 层：容器隔离，受 OP_DS 控制 ─────────────────────────────
+        # 只关闭 USER_NS / PID_NS / MACVLAN：缺少 PID_NS 时容器根本无法创建
+        # 独立进程树，这三项足以让 Droidspaces 不可用，而开机路径不受影响。
+        # IPC_NS 故意留在第 2 层不关 —— 它依赖 SYSVIPC，且 rust_build 分支会
+        # 向 ipc/namespace.c 追加 EXPORT_SYMBOL_GPL(put_ipc_ns)，关闭后该符号
+        # 不再参与编译，会直接导致链接失败。
+        if [ "$OP_DS" = "true" ]; then
+          echo "Container isolation enabled (ds=true)"
+          cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF
         CONFIG_USER_NS=y
+        CONFIG_PID_NS=y
         CONFIG_MACVLAN=y
         EOF
+        else
+          echo "Container isolation disabled (ds=false) — boot stays unaffected"
+          cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF
+        # CONFIG_USER_NS is not set
+        # CONFIG_PID_NS is not set
+        # CONFIG_MACVLAN is not set
+        EOF
+        fi
         
         if [ "${{ env.OP_RUST_BUILD }}" = "true" ]; then
           echo "Add IPC NS missing symbols for rust binder"
@@ -2733,15 +2766,16 @@ runs:
         # 这些选项缺失会导致 Image 刷入后卡开机第一屏（ueventd 拿不到设备节点，
         # first-stage mount 找不到 /dev/block/by-name/*）。在编译前直接失败，
         # 远比刷成砖再回头排查便宜。
+        #
+        # 注意：IPC_NS 不在此列，也不受 OP_DS 控制 —— 见 Add Droidspaces support
+        # 步骤里关于 rust_build 导出符号的说明。USER_NS / PID_NS / MACVLAN
+        # 只影响容器能力，缺失不影响开机，因此允许被 OP_DS=false 关闭。
         echo "::group::Verify boot-critical configs"
         BOOT_CRITICAL=(
           CONFIG_DEVTMPFS
           CONFIG_SYSVIPC
           CONFIG_POSIX_MQUEUE
-          CONFIG_USER_NS
-          CONFIG_PID_NS
           CONFIG_IPC_NS
-          CONFIG_MACVLAN
           CONFIG_BT
         )
         MISSING_CONFIGS=()
@@ -2756,7 +2790,26 @@ runs:
           echo "The built Image would NOT boot. Aborting before packaging."
           exit 1
         fi
-        echo "✅ All boot-critical configs present (=y)"
+        echo "✅ Boot-critical configs present (=y)"
+
+        # 容器隔离项按 OP_DS 双向校验，防止 defconfig 追加的 `# X is not set`
+        # 被别处的 select 链悄悄翻回 =y，也防止 ds=true 时因依赖缺失被关掉。
+        echo "Container isolation (ds=${OP_DS:-unset}):"
+        CONTAINER_OPTS=(CONFIG_USER_NS CONFIG_PID_NS CONFIG_MACVLAN)
+        for opt in "${CONTAINER_OPTS[@]}"; do
+          if grep -qx "${opt}=y" "$OUT/.config"; then
+            actual="enabled"
+          else
+            actual="disabled"
+          fi
+          if [ "${OP_DS:-false}" = "true" ] && [ "$actual" != "enabled" ]; then
+            echo "::warning::${opt} expected =y (ds=true) but got disabled"
+          elif [ "${OP_DS:-false}" != "true" ] && [ "$actual" = "enabled" ]; then
+            echo "::warning::${opt} expected disabled (ds=false) but got enabled (selected by dependency chain)"
+          else
+            echo "  ${opt}: ${actual}"
+          fi
+        done
         echo "::endgroup::"
 
         KCFLAGS="$KCFLAGS -Wno-error -pipe ${KCFLAGS_EXTRA}"
