@@ -1802,6 +1802,15 @@ runs:
         
         echo "::endgroup::"
 
+    - name: Apply Kernel Compatibility Fixes
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "::group::Apply kernel compatibility fixes"
+        python3 "$GITHUB_WORKSPACE/scripts/oneplus_compat/apply_kernel_fixes.py" \
+          "$COMMON_KERNEL_FOLDER" "${OP_SOC:-}"
+        echo "::endgroup::"
+
     - name: Add BBG
       if: ${{ env.OP_BBG == 'true' }}
       shell: bash
@@ -2249,6 +2258,7 @@ runs:
         CONFIG_NETFILTER_XT_TARGET_LOG=y
         CONFIG_NETFILTER_XT_MATCH_RECENT=y
         CONFIG_USER_NS=y
+        CONFIG_MACVLAN=y
         EOF
         
         if [ "${{ env.OP_RUST_BUILD }}" = "true" ]; then
