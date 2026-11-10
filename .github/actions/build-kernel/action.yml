@@ -2219,7 +2219,13 @@ runs:
 
     - name: Add Droidspaces support
       shell: bash
-      if: ${{ env.OP_DS == 'true' }}
+      # 无条件执行：本块追加的 CONFIG_DEVTMPFS / SYSVIPC / POSIX_MQUEUE /
+      # USER_NS / PID_NS / MACVLAN 与厂商原厂 defconfig 完全一致（均为 =y），
+      # 是 Android first-stage mount 正常工作的必需项，不属于可选容器特性。
+      # 此前该块被 OP_DS 门控，而工作流的 enable_droidspaces_ntsync 默认
+      # false 会用 jq 强制覆写 configs/*.json 里的 "ds": true，导致这些选项
+      # 全部缺失 —— 编译产出的 Image 刷入后卡开机第一屏（ueventd 拿不到
+      # /dev/block/by-name/*，first-stage mount 失败）。
       run: |
         echo "::group::Add Droidspaces Support"
         set -euo pipefail
@@ -2687,10 +2693,24 @@ runs:
         scripts/config --file "$OUT/.config" \
           -e BPF_SYSCALL \
           -e CGROUP_BPF \
-          -e BPF_STREAM_PARSER \
-          -m TLS \
-          -m BT
+          -e BPF_STREAM_PARSER
         echo "🔧 Aligned skmsg/sockmap symbol-export configs with stock kernel (fix tls.ko/bluetooth.ko Unknown symbol)"
+
+        # ── BT 链路必须内置，TLS 保持关闭（与原厂 defconfig 对齐）──────────────
+        # 原厂 OnePlus 12R A16 实测 defconfig：CONFIG_BT=y（BT_BCM / BT_QCA /
+        # BT_HCIUART / BT_HCIBTSDIO 亦全为 y），CONFIG_TLS is not set。
+        # 本流水线只编译并打包 Image，不产出也不打包任何 .ko，因此把 BT 设为 m
+        # 等价于「蓝牙核心根本不进镜像」：启动时没有 "Bluetooth: Core ver"
+        # 初始化，依赖 bt 核心的厂商预编译模块（如 bt_fm_slim.ko）加载即失败。
+        # 这里显式对齐原厂，把 BT 链拉回内置。
+        scripts/config --file "$OUT/.config" \
+          -e BT \
+          -e BT_BCM \
+          -e BT_QCA \
+          -e BT_HCIUART \
+          -e BT_HCIBTSDIO \
+          -d TLS
+        echo "🔧 Aligned BT chain to built-in and disabled TLS (matches stock defconfig)"
 
         # ── 修复 oplus_nfc 链接失败（n6x 等新内核分支）────────────────────────────
         # 部分新内核分支（如 mt6835 n6x）把 CONFIG_OPLUS_NFC 的 Kconfig default 改为 y，
@@ -2708,7 +2728,37 @@ runs:
         fi
 
         make LD="$COMMON_KERNEL_FOLDER/ld-wrapper" HOSTLD="$COMMON_KERNEL_FOLDER/ld-wrapper" O="$OUT" olddefconfig
-        
+
+        # ── 开机必需配置守卫 ─────────────────────────────────────────────────────
+        # 这些选项缺失会导致 Image 刷入后卡开机第一屏（ueventd 拿不到设备节点，
+        # first-stage mount 找不到 /dev/block/by-name/*）。在编译前直接失败，
+        # 远比刷成砖再回头排查便宜。
+        echo "::group::Verify boot-critical configs"
+        BOOT_CRITICAL=(
+          CONFIG_DEVTMPFS
+          CONFIG_SYSVIPC
+          CONFIG_POSIX_MQUEUE
+          CONFIG_USER_NS
+          CONFIG_PID_NS
+          CONFIG_IPC_NS
+          CONFIG_MACVLAN
+          CONFIG_BT
+        )
+        MISSING_CONFIGS=()
+        for opt in "${BOOT_CRITICAL[@]}"; do
+          if ! grep -qx "${opt}=y" "$OUT/.config"; then
+            MISSING_CONFIGS+=("$opt")
+            echo "::error::boot-critical config missing: ${opt} (expected =y)"
+          fi
+        done
+        if [ ${#MISSING_CONFIGS[@]} -gt 0 ]; then
+          echo "❌ Missing: ${MISSING_CONFIGS[*]}"
+          echo "The built Image would NOT boot. Aborting before packaging."
+          exit 1
+        fi
+        echo "✅ All boot-critical configs present (=y)"
+        echo "::endgroup::"
+
         KCFLAGS="$KCFLAGS -Wno-error -pipe ${KCFLAGS_EXTRA}"
         KCPPFLAGS="$KCPPFLAGS -DCONFIG_OPTIMIZE_INLINING"
         

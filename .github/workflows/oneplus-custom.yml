@@ -210,10 +210,14 @@ on:
         type: boolean
         default: false
       enable_droidspaces_ntsync:
-        description: '启用 Droidspaces 容器 & NTSync（默认关闭）'
+        description: 'Droidspaces 容器 & NTSync（auto=沿用设备配置，推荐）'
         required: false
-        type: boolean
-        default: false
+        type: choice
+        default: auto
+        options:
+          - auto
+          - 'true'
+          - 'false'
       optimize_level:
         description: '编译器优化级别'
         required: true
@@ -372,11 +376,17 @@ jobs:
 
           device=$(jq -c '.' "$config_file")
 
-          # Droidspaces & NTSync 合并开关：默认关闭，不勾选时强制关闭两者
-          dn=false
-          [ "${{ inputs.enable_droidspaces_ntsync }}" = "true" ] && dn=true
-          device=$(echo "$device" | jq -c --argjson dn "$dn" '.ds = $dn | .ntsync = $dn')
-          echo "Droidspaces/NTSync override: $dn"
+          # Droidspaces & NTSync 开关：留空（auto）时沿用 configs/*.json 里的
+          # 设定；只有明确选 true/false 时才整体覆写。
+          # 旧行为是无条件用默认值 false 覆写，会把 12R A16 等配置里的
+          # "ds": true 强行关掉，导致 DEVTMPFS/SYSVIPC 等开机必需项缺失。
+          ds_override='${{ inputs.enable_droidspaces_ntsync }}'
+          if [ -n "$ds_override" ] && [ "$ds_override" != "auto" ]; then
+            device=$(echo "$device" | jq -c --argjson dn "$ds_override" '.ds = $dn | .ntsync = $dn')
+            echo "Droidspaces/NTSync override: $ds_override"
+          else
+            echo "Droidspaces/NTSync override: auto (from config json: ds=$(echo "$device" | jq -r '.ds'), ntsync=$(echo "$device" | jq -r '.ntsync'))"
+          fi
 
           # KernelSU 变体（固定默认分支：SukiSU→builtin, BakaSU→main, FinaSU→master）
           ksu_variant='${{ inputs.ksu_variant }}'
@@ -432,7 +442,7 @@ jobs:
             echo "| Re-Kernel | ${{ inputs.use_rekernel && '✅ enabled' || '❌ disabled' }} |"
             echo "| Optimization | \`${{ inputs.optimize_level }}\` |"
             echo "| MLGO | ${{ inputs.mlgo && '✅ enabled' || '❌ disabled' }} |"
-            echo "| Droidspaces & NTSync | ${{ inputs.enable_droidspaces_ntsync && '✅ enabled' || '❌ disabled' }} |"
+            echo "| Droidspaces & NTSync | ${{ inputs.enable_droidspaces_ntsync == 'auto' && '🔧 auto (per-device)' || (inputs.enable_droidspaces_ntsync == 'true' && '✅ forced on' || '❌ forced off') }} |"
             echo "| Toolchain sync | ${{ inputs.mirror_toolchains && '✅ enabled' || '❌ disabled' }} |"
             echo "| Custom version | \`${{ inputs.custom_version || 'auto (-<android> KMI tag)' }}\` |"
             echo "| Build timestamp | \`${{ inputs.build_timestamp || 'auto (current build time)' }}\` |"
