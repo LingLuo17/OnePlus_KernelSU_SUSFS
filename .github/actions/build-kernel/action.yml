@@ -2730,13 +2730,21 @@ runs:
         echo "🔧 Aligned skmsg/sockmap symbol-export configs with stock kernel (fix tls.ko/bluetooth.ko Unknown symbol)"
 
         # ── BT 链路必须内置，TLS 保持关闭（与原厂 defconfig 对齐）──────────────
-        # 原厂 OnePlus 12R A16 实测 defconfig：CONFIG_BT=y（BT_BCM / BT_QCA /
-        # BT_HCIUART / BT_HCIBTSDIO 亦全为 y），CONFIG_TLS is not set。
+        # 原厂 OnePlus 12R A16 实测 defconfig：CONFIG_RFKILL=y、CONFIG_BT=y
+        # （BT_BCM / BT_QCA / BT_HCIUART / BT_HCIBTSDIO 亦全为 y），CONFIG_TLS is not set。
         # 本流水线只编译并打包 Image，不产出也不打包任何 .ko，因此把 BT 设为 m
         # 等价于「蓝牙核心根本不进镜像」：启动时没有 "Bluetooth: Core ver"
         # 初始化，依赖 bt 核心的厂商预编译模块（如 bt_fm_slim.ko）加载即失败。
         # 这里显式对齐原厂，把 BT 链拉回内置。
+        #
+        # RFKILL 必须先于 BT 置 y：net/bluetooth/Kconfig 中 BT 带有
+        #   depends on RFKILL || !RFKILL
+        # 该表达式在 RFKILL=m 时取值为 m，会把 BT 的上限钳制在 m。6.1 起的
+        # gki_defconfig 正是 CONFIG_RFKILL=m（5.10 / 5.15 为 y），因此只写
+        # -e BT 时 olddefconfig 会静默把 BT 降回 m。先置 RFKILL=y 后表达式
+        # 取值为 y，BT 才能真正内置。5.10 / 5.15 上 RFKILL 已是 y，幂等无害。
         scripts/config --file "$OUT/.config" \
+          -e RFKILL \
           -e BT \
           -e BT_BCM \
           -e BT_QCA \
@@ -2782,7 +2790,8 @@ runs:
         for opt in "${BOOT_CRITICAL[@]}"; do
           if ! grep -qx "${opt}=y" "$OUT/.config"; then
             MISSING_CONFIGS+=("$opt")
-            echo "::error::boot-critical config missing: ${opt} (expected =y)"
+            # 打印 .config 里的真实取值，便于区分「没写进去」与「被依赖钳回 m」。
+            echo "::error::boot-critical config missing: ${opt} (expected =y, actual: $(grep -E "^${opt}=|^# ${opt} " "$OUT/.config" | head -1 || echo 'absent'))"
           fi
         done
         if [ ${#MISSING_CONFIGS[@]} -gt 0 ]; then
