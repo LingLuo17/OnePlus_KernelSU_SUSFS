@@ -2217,26 +2217,27 @@ runs:
         CONFIG_IP6_NF_TARGET_MASQUERADE=y
         EOF
 
+    - name: Ensure devtmpfs for first-stage mount
+      shell: bash
+      # 唯一需要无条件保证的选项。Droidspaces 步骤在 ds=false 时整体跳过，
+      # 而 DEVTMPFS 一旦缺失，ueventd 建不出 /dev/block/by-name/*，
+      # first-stage mount 失败，刷入后卡开机第一屏（无 panic、无 pstore）。
+      #
+      # 除这一项外不要在这里追加任何“顺手对齐”的配置：厂商 defconfig 片段
+      # 与 vendor 分区预编译 .ko 是按原厂布局构建的，额外改动 SYSVIPC /
+      # USER_NS / BT / TLS 等都会漂移 kABI，表现为模块 CRC 校验失败、
+      # Exec format error、声卡反复 probe defer 等功能性故障。
+      run: |
+        set -euo pipefail
+        echo "CONFIG_DEVTMPFS=y" >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig"
+
     - name: Add Droidspaces support
       shell: bash
-      # 本步骤分三层，三层互相独立，请不要合并回去：
-      #
-      # 1) kABI 补丁 —— 无条件应用。这些补丁只把 sysv_sem / sysv_shm /
-      #    mq_bytes 重排进 ANDROID_KABI_RESERVE 槽位，使开启 SYSVIPC /
-      #    POSIX_MQUEUE 后 struct task_struct / user_struct 的总大小不变。
-      #    补丁内部全部由 #ifdef CONFIG_* 包裹：CONFIG 关闭时自动退化为
-      #    原布局，等于空补丁。因此无论容器开关如何都必须打 —— 若漏打而
-      #    SYSVIPC 又被别处 select 打开，结构体会变大，厂商预编译 .ko 直接
-      #    bootloop。
-      #
-      # 2) 开机与硬件基线 —— 无条件写入。DEVTMPFS 缺失会让 ueventd 建不出
-      #    /dev/block/by-name/*，first-stage mount 失败卡第一屏；SYSVIPC /
-      #    POSIX_MQUEUE / IPC_NS 是厂商原厂基线（=y），且与已实测能开机的
-      #    镜像一致，改动它们会移动 task_struct 字段偏移，风险大于收益。
-      #
-      # 3) 容器隔离 —— 受 OP_DS 控制。USER_NS / PID_NS / MACVLAN 是容器
-      #    命名空间与网络隔离的核心，缺 PID_NS 时容器连独立进程树都建不出，
-      #    而开机、蓝牙、厂商 IPC 依赖全部不受影响。
+      # 与上游保持一致：整个步骤（含 kABI 补丁）只在 ds=true 时执行。
+      # kABI 补丁会重排 sysv_sem / sysv_shm / mq_bytes 到 ANDROID_KABI_RESERVE
+      # 槽位，本身就会改变结构体布局，因此绝不能无条件应用 —— 原厂未打补丁
+      # 的 .ko 期望的是原始布局。
+      if: ${{ env.OP_DS == 'true' }}
       run: |
         echo "::group::Add Droidspaces Support"
         set -euo pipefail
@@ -2266,40 +2267,19 @@ runs:
         echo "Patch to fix kernel panic caused by oplus_bsp_midas"
         patch -p1 --forward < "$KERNEL_PATCHES_FOLDER/common/droidspaces/0001-Return-ghost-task-if-task-is-null-and-is-requested-b.patch"
         
-        # ── 第 2 层：开机与硬件基线，无条件写入 ───────────────────────────
-        echo "Applying boot-critical and stock-baseline configs (always on)"
         cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF
-        CONFIG_DEVTMPFS=y
         CONFIG_SYSVIPC=y
+        CONFIG_DEVTMPFS=y
+        CONFIG_PID_NS=y
         CONFIG_POSIX_MQUEUE=y
-        CONFIG_IPC_NS=y
-        CONFIG_NETFILTER_XT_TARGET_REJECT=y
+        CONFIG_IP_NF_TARGET_REJECT=y
+        CONFIG_IP6_NF_TARGET_REJECT=y
         CONFIG_NETFILTER_XT_TARGET_LOG=y
         CONFIG_NETFILTER_XT_MATCH_RECENT=y
-        EOF
-        
-        # ── 第 3 层：容器隔离，受 OP_DS 控制 ─────────────────────────────
-        # 只关闭 USER_NS / PID_NS / MACVLAN：缺少 PID_NS 时容器根本无法创建
-        # 独立进程树，这三项足以让 Droidspaces 不可用，而开机路径不受影响。
-        # IPC_NS 故意留在第 2 层不关 —— 它依赖 SYSVIPC，且 rust_build 分支会
-        # 向 ipc/namespace.c 追加 EXPORT_SYMBOL_GPL(put_ipc_ns)，关闭后该符号
-        # 不再参与编译，会直接导致链接失败。
-        if [ "$OP_DS" = "true" ]; then
-          echo "Container isolation enabled (ds=true)"
-          cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF
         CONFIG_USER_NS=y
-        CONFIG_PID_NS=y
         CONFIG_MACVLAN=y
         EOF
-        else
-          echo "Container isolation disabled (ds=false) — boot stays unaffected"
-          cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF
-        # CONFIG_USER_NS is not set
-        # CONFIG_PID_NS is not set
-        # CONFIG_MACVLAN is not set
-        EOF
-        fi
-        
+
         if [ "${{ env.OP_RUST_BUILD }}" = "true" ]; then
           echo "Add IPC NS missing symbols for rust binder"
           if ! grep -q 'EXPORT_SYMBOL.*put_ipc_ns' "$COMMON_KERNEL_FOLDER/ipc/namespace.c"; then
@@ -2714,44 +2694,14 @@ runs:
             ;;
         esac
 
-        # ── 修复 vendor 预编译模块 Unknown symbol（全设备、全内核版本）──────────
-        # 厂商分区预编译的 tls.ko / bluetooth.ko 依赖内核导出的 skmsg/sock_map 符号
-        # （sk_msg_*、sk_psock_*、tcp_bpf_sendmsg_redir、sk_filter_trim_cap 等）。
-        # 这些符号的导出依赖 BPF_SYSCALL + CGROUP_BPF + BPF_STREAM_PARSER
-        # （select NET_SOCK_MSG / STREAM_PARSER）以及 TLS=m / BT=m 的 select 链。
-        # 官方内核 .config 实测为 NET_SOCK_MSG=y + STREAM_PARSER=y。
-        # 此前 BPF_STREAM_PARSER 仅在 ip_set 功能开启时追加，且 patch 链可能干扰
-        # defconfig 的 select 链，导致模块加载报 Unknown symbol (err -22)。
-        # 在最终 .config 层显式对齐官方配置（olddefconfig 幂等，无害）。
-        scripts/config --file "$OUT/.config" \
-          -e BPF_SYSCALL \
-          -e CGROUP_BPF \
-          -e BPF_STREAM_PARSER
-        echo "🔧 Aligned skmsg/sockmap symbol-export configs with stock kernel (fix tls.ko/bluetooth.ko Unknown symbol)"
-
-        # ── BT 链路必须内置，TLS 保持关闭（与原厂 defconfig 对齐）──────────────
-        # 原厂 OnePlus 12R A16 实测 defconfig：CONFIG_RFKILL=y、CONFIG_BT=y
-        # （BT_BCM / BT_QCA / BT_HCIUART / BT_HCIBTSDIO 亦全为 y），CONFIG_TLS is not set。
-        # 本流水线只编译并打包 Image，不产出也不打包任何 .ko，因此把 BT 设为 m
-        # 等价于「蓝牙核心根本不进镜像」：启动时没有 "Bluetooth: Core ver"
-        # 初始化，依赖 bt 核心的厂商预编译模块（如 bt_fm_slim.ko）加载即失败。
-        # 这里显式对齐原厂，把 BT 链拉回内置。
-        #
-        # RFKILL 必须先于 BT 置 y：net/bluetooth/Kconfig 中 BT 带有
-        #   depends on RFKILL || !RFKILL
-        # 该表达式在 RFKILL=m 时取值为 m，会把 BT 的上限钳制在 m。6.1 起的
-        # gki_defconfig 正是 CONFIG_RFKILL=m（5.10 / 5.15 为 y），因此只写
-        # -e BT 时 olddefconfig 会静默把 BT 降回 m。先置 RFKILL=y 后表达式
-        # 取值为 y，BT 才能真正内置。5.10 / 5.15 上 RFKILL 已是 y，幂等无害。
-        scripts/config --file "$OUT/.config" \
-          -e RFKILL \
-          -e BT \
-          -e BT_BCM \
-          -e BT_QCA \
-          -e BT_HCIUART \
-          -e BT_HCIBTSDIO \
-          -d TLS
-        echo "🔧 Aligned BT chain to built-in and disabled TLS (matches stock defconfig)"
+        # 不要在这里对 BT / RFKILL / TLS / BPF 做任何“对齐”。
+        # 这些功能在 6.1 及以后由厂商以预编译 .ko 形式随 system_dlkm 提供，
+        # 上游刻意保持 gki_defconfig 原值（BT=m、TLS=m）。把它们内置或关掉
+        # 都会让内核导出的符号 CRC 与厂商 .ko 不一致，实测后果：
+        #   bluetooth.ko: Exec format error
+        #   tls.ko: disagrees about version of symbol sk_psock_drop 等 28 项
+        #  BPF_STREAM_PARSER 仍由 Add IP SET & IPv6_NAT Support 步骤按上游
+        #  的版本/分支条件追加，此处不重复处理。
 
         # ── 修复 oplus_nfc 链接失败（n6x 等新内核分支）────────────────────────────
         # 部分新内核分支（如 mt6835 n6x）把 CONFIG_OPLUS_NFC 的 Kconfig default 改为 y，
@@ -2771,53 +2721,26 @@ runs:
         make LD="$COMMON_KERNEL_FOLDER/ld-wrapper" HOSTLD="$COMMON_KERNEL_FOLDER/ld-wrapper" O="$OUT" olddefconfig
 
         # ── 开机必需配置守卫 ─────────────────────────────────────────────────────
-        # 这些选项缺失会导致 Image 刷入后卡开机第一屏（ueventd 拿不到设备节点，
-        # first-stage mount 找不到 /dev/block/by-name/*）。在编译前直接失败，
-        # 远比刷成砖再回头排查便宜。
+        # 只有 DEVTMPFS 是真正致命的：缺失会让 ueventd 建不出设备节点，
+        # first-stage mount 失败卡第一屏。在编译前直接失败，比刷成砖再排查便宜。
         #
-        # 注意：IPC_NS 不在此列，也不受 OP_DS 控制 —— 见 Add Droidspaces support
-        # 步骤里关于 rust_build 导出符号的说明。USER_NS / PID_NS / MACVLAN
-        # 只影响容器能力，缺失不影响开机，因此允许被 OP_DS=false 关闭。
+        # 不要把 SYSVIPC / POSIX_MQUEUE / IPC_NS / BT 之类列进来判死刑：
+        # 它们的取值由厂商 defconfig 片段决定，且 6.1 起 BT 受 RFKILL=m 钳制
+        # 只能是 m，判 =y 会让整个 6.x 矩阵在编译前就被误杀。其余项只打印
+        # 实际取值，供排障时对照，不改变构建结果。
         echo "::group::Verify boot-critical configs"
-        BOOT_CRITICAL=(
-          CONFIG_DEVTMPFS
-          CONFIG_SYSVIPC
-          CONFIG_POSIX_MQUEUE
-          CONFIG_IPC_NS
-          CONFIG_BT
-        )
-        MISSING_CONFIGS=()
-        for opt in "${BOOT_CRITICAL[@]}"; do
-          if ! grep -qx "${opt}=y" "$OUT/.config"; then
-            MISSING_CONFIGS+=("$opt")
-            # 打印 .config 里的真实取值，便于区分「没写进去」与「被依赖钳回 m」。
-            echo "::error::boot-critical config missing: ${opt} (expected =y, actual: $(grep -E "^${opt}=|^# ${opt} " "$OUT/.config" | head -1 || echo 'absent'))"
-          fi
-        done
-        if [ ${#MISSING_CONFIGS[@]} -gt 0 ]; then
-          echo "❌ Missing: ${MISSING_CONFIGS[*]}"
+        if ! grep -qx "CONFIG_DEVTMPFS=y" "$OUT/.config"; then
+          echo "::error::CONFIG_DEVTMPFS is not =y (actual: $(grep -E '^CONFIG_DEVTMPFS=|^# CONFIG_DEVTMPFS ' "$OUT/.config" | head -1 || echo 'absent'))"
           echo "The built Image would NOT boot. Aborting before packaging."
           exit 1
         fi
-        echo "✅ Boot-critical configs present (=y)"
+        echo "✅ CONFIG_DEVTMPFS=y"
 
-        # 容器隔离项按 OP_DS 双向校验，防止 defconfig 追加的 `# X is not set`
-        # 被别处的 select 链悄悄翻回 =y，也防止 ds=true 时因依赖缺失被关掉。
-        echo "Container isolation (ds=${OP_DS:-unset}):"
-        CONTAINER_OPTS=(CONFIG_USER_NS CONFIG_PID_NS CONFIG_MACVLAN)
-        for opt in "${CONTAINER_OPTS[@]}"; do
-          if grep -qx "${opt}=y" "$OUT/.config"; then
-            actual="enabled"
-          else
-            actual="disabled"
-          fi
-          if [ "${OP_DS:-false}" = "true" ] && [ "$actual" != "enabled" ]; then
-            echo "::warning::${opt} expected =y (ds=true) but got disabled"
-          elif [ "${OP_DS:-false}" != "true" ] && [ "$actual" = "enabled" ]; then
-            echo "::warning::${opt} expected disabled (ds=false) but got enabled (selected by dependency chain)"
-          else
-            echo "  ${opt}: ${actual}"
-          fi
+        echo "Config report (ds=${OP_DS:-unset}, informational only):"
+        for opt in CONFIG_SYSVIPC CONFIG_POSIX_MQUEUE CONFIG_IPC_NS \
+                   CONFIG_USER_NS CONFIG_PID_NS CONFIG_MACVLAN \
+                   CONFIG_BT CONFIG_RFKILL CONFIG_TLS; do
+          echo "  $(grep -E "^${opt}=|^# ${opt} " "$OUT/.config" | head -1 || echo "${opt}: absent")"
         done
         echo "::endgroup::"
 
