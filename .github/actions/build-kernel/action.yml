@@ -2554,7 +2554,24 @@ runs:
         else
           patch -p1 < "$KERNEL_PATCHES_FOLDER/common/vendor_modules/0001-Support-conditional-vendor-modules-blacklisting-6.1-and-above.patch"
         fi
-        
+
+    - name: Skip BTF when libelf is unavailable
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ -e /usr/include/libelf.h ] || [ -e /usr/include/elfutils/libelf.h ]; then
+          if ldconfig -p 2>/dev/null | grep -q 'libelf\.so'; then
+            echo "libelf available; keeping CONFIG_DEBUG_INFO_BTF enabled"
+            exit 0
+          fi
+        fi
+        # apt can fail on transient DNS errors; resolve_btfids then cannot build
+        # without libelf, so drop BTF instead of failing the whole kernel build.
+        echo "libelf unavailable; disabling CONFIG_DEBUG_INFO_BTF for this build"
+        DEFCONFIG="$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig"
+        sed -i '/^CONFIG_DEBUG_INFO_BTF/d' "$DEFCONFIG"
+        printf 'CONFIG_DEBUG_INFO_BTF=n\nCONFIG_DEBUG_INFO_BTF_MODULES=n\n' >> "$DEFCONFIG"
+
     - name: Build Kernel
       id: build_kernel_step
       shell: bash
