@@ -1569,25 +1569,26 @@ runs:
 
         # susfs4ksu R28 新增 getpriority/priority uid filter 特性，整套代码（含
         # susfs_switch_to_ksu_domain / susfs_restore_creds 两个辅助函数）以
-        # CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER 为开关，但 SukiSU(builtin)、BakaSU、
-        # FinaSU 的原生驱动 Kconfig 均未定义该选项，而 SukiSU 驱动的 supercall
-        # 分发（CMD_SUSFS_SET_PRIORITY_UID_FILTER）与 pkg_observer 无条件调用
-        # susfs_set_priority_uid_filter / susfs_parse_priority_app_strings：
-        #   - susfs.c 的两个辅助函数失去唯一调用方，clang -Werror,-Wunused-function
-        #     直接中断编译；
-        #   - susfs.h 中的声明被裁掉，SukiSU 驱动侧报 -Wimplicit-function-declaration。
-        # 把开关上提到 CONFIG_KSU_SUSFS（启用 SUSFS 时恒为 y）使特性完整可用。
+        # CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER 为开关。SukiSU/FinaSU 驱动已
+        # 自带该 Kconfig，BakaSU 仍未定义；仅对缺少该选项的驱动把 guard 上提到
+        # CONFIG_KSU_SUSFS，避免未使用函数/隐式声明导致编译失败。
         # 仅改写预处理指令行：susfs.c 里 copy_config_to_buf() 的
         # "CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER\n" 字符串字面量保持原样，管理器
         # 仍能按原名识别该特性。补丁只改 +#ifdef/+#endif 行，hunk 行数不变。
-        PRIORITY_PATCH="$SUSFS_FOLDER/kernel_patches/50_add_susfs_in_${SUSFS_KERNEL_BRANCH}.patch"
-        for PRIORITY_FILE in "$PRIORITY_PATCH" \
-                             "$COMMON_KERNEL_FOLDER/fs/susfs.c" \
-                             "$COMMON_KERNEL_FOLDER/include/linux/susfs.h"; do
-          [ -f "$PRIORITY_FILE" ] || continue
-          sed -i -E '/^[+ ]*#[[:space:]]*(ifdef|ifndef|endif).*CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER/ s/CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER/CONFIG_KSU_SUSFS/' "$PRIORITY_FILE"
-        done
-        echo "Normalized the priority uid filter guard to CONFIG_KSU_SUSFS"
+        SU_PRIORITY_KCONFIG=0
+        if [ -f "$KSU_FOLDER/kernel/Kconfig" ] && grep -q '^config KSU_SUSFS_PRIORITY_UID_FILTER' "$KSU_FOLDER/kernel/Kconfig"; then
+          SU_PRIORITY_KCONFIG=1
+          echo "Driver defines KSU_SUSFS_PRIORITY_UID_FILTER; keeping its guard"
+        else
+          PRIORITY_PATCH="$SUSFS_FOLDER/kernel_patches/50_add_susfs_in_${SUSFS_KERNEL_BRANCH}.patch"
+          for PRIORITY_FILE in "$PRIORITY_PATCH" \
+                               "$COMMON_KERNEL_FOLDER/fs/susfs.c" \
+                               "$COMMON_KERNEL_FOLDER/include/linux/susfs.h"; do
+            [ -f "$PRIORITY_FILE" ] || continue
+            sed -i -E '/^[+ ]*#[[:space:]]*(ifdef|ifndef|endif).*CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER/ s/CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER/CONFIG_KSU_SUSFS/' "$PRIORITY_FILE"
+          done
+          echo "Normalized the priority uid filter guard to CONFIG_KSU_SUSFS"
+        fi
         
         susfs_version=$(grep '#define SUSFS_VERSION' "$COMMON_KERNEL_FOLDER/include/linux/susfs.h" | awk -F'"' '{print $2}')
         echo "SUSVER=$susfs_version" >> $GITHUB_ENV
@@ -1799,6 +1800,10 @@ runs:
         CONFIG_KSU_SUSFS_SUS_MAP=y
         CONFIG_KSU_SUSFS_SUS_SU=n
         EOF
+
+        if [ "$SU_PRIORITY_KCONFIG" = "1" ]; then
+          echo "CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y" >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig"
+        fi
         
         echo "::endgroup::"
 
