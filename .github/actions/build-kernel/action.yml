@@ -3093,7 +3093,35 @@ runs:
         cp "$IMAGE_PATH" "$AK3_FOLDER/Image"
 
         cd "$AK3_FOLDER"
-        
+
+        # Read the device kernel version from a dumped boot image. Some flashing
+        # apps cannot run strings against a block device, so the original check
+        # aborted before split_boot ever had a chance to dump the partition.
+        python3 - <<'PY'
+        from pathlib import Path
+
+        script = Path("tools/ak3-core.sh")
+        text = script.read_text(encoding="utf-8")
+        old = '  dev_ver=$(extract_kernel_version "$BLOCK")\n'
+        new = (
+            '  local boot_dump="$AKHOME/.ak3_boot_check.img"\n'
+            '  rm -f "$boot_dump"\n'
+            '  if ! dd if="$BLOCK" of="$boot_dump" bs=1048576 2>/dev/null; then\n'
+            '    rm -f "$boot_dump"\n'
+            '    abort "  -> ERROR: Unable to read device boot partition. Abort."\n'
+            '  fi\n'
+            '  dev_ver=$(extract_kernel_version "$boot_dump")\n'
+            '  rm -f "$boot_dump"\n'
+        )
+        if new in text:
+            print("AK3 boot version check already patched")
+        elif old in text:
+            script.write_text(text.replace(old, new, 1), encoding="utf-8")
+            print("Patched AK3 boot version check to read a dumped boot image")
+        else:
+            raise SystemExit("AK3 boot version check pattern not found")
+        PY
+
         sed -i 's/do.check_boot_version=.*/do.check_boot_version=1/' anykernel.sh
         
         case "$OP_BRANCH" in
