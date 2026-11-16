@@ -3095,8 +3095,9 @@ runs:
         cd "$AK3_FOLDER"
 
         # Read the device kernel version from a dumped boot image. Some flashing
-        # apps cannot run strings against a block device, so the original check
-        # aborted before split_boot ever had a chance to dump the partition.
+        # apps cannot read block devices directly, and the boot image may keep
+        # the kernel wrapped or compressed, so try the unpacked kernel and then
+        # the running kernel before giving up.
         python3 - <<'PY'
         from pathlib import Path
 
@@ -3105,12 +3106,24 @@ runs:
         old = '  dev_ver=$(extract_kernel_version "$BLOCK")\n'
         new = (
             '  local boot_dump="$AKHOME/.ak3_boot_check.img"\n'
+            '  local boot_dir="$AKHOME/.ak3_boot_check"\n'
+            '  rm -rf "$boot_dir"\n'
             '  rm -f "$boot_dump"\n'
             '  if ! dd if="$BLOCK" of="$boot_dump" bs=1048576 2>/dev/null; then\n'
             '    rm -f "$boot_dump"\n'
             '    abort "  -> ERROR: Unable to read device boot partition. Abort."\n'
             '  fi\n'
             '  dev_ver=$(extract_kernel_version "$boot_dump")\n'
+            '  if [ -z "$dev_ver" ]; then\n'
+            '    mkdir -p "$boot_dir"\n'
+            '    if (cd "$boot_dir" && magiskboot unpack "$boot_dump" >/dev/null 2>&1); then\n'
+            '      [ -f "$boot_dir/kernel" ] && dev_ver=$(extract_kernel_version "$boot_dir/kernel")\n'
+            '    fi\n'
+            '  fi\n'
+            '  if [ -z "$dev_ver" ]; then\n'
+            '    dev_ver=$(grep -oE "Linux version [0-9]+\\.[0-9]+\\.[0-9]+-android[0-9]+" /proc/version 2>/dev/null | head -n1 | cut -d" " -f3)\n'
+            '  fi\n'
+            '  rm -rf "$boot_dir"\n'
             '  rm -f "$boot_dump"\n'
         )
         if new in text:
