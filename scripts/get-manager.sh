@@ -4,7 +4,7 @@ set -eo pipefail
 VARIANT="${KSU_VARIANT}"
 
 case "$VARIANT" in
-  "SukiSU") REPO="SukiSU-Ultra/SukiSU-Ultra"; KSUM="manager"; EXPECTED_BRANCH="main" ;;
+  "SukiSU-Nova") REPO="SukiSU-Nova/SukiSU-Nova"; KSUM="manager"; EXPECTED_BRANCH="main" ;;
   "BakaSU") REPO="Baka-SU/BakaSU";           KSUM="manager"; EXPECTED_BRANCH="main" ;;
   "FinaSU") REPO="LyraVoid/FinaSU";          KSUM="manager"; EXPECTED_BRANCH="master" ;;
   *) echo "::error::未知变体: $VARIANT"; exit 1 ;;
@@ -22,7 +22,7 @@ fi
 
 ksu_version_of() {
   case "$1" in
-    SukiSU) echo $((40000 + $2 - 2815)) ;;
+    SukiSU-Nova) echo $((30000 + $2 - 4001)) ;;
     BakaSU) echo $((30700 + $2)) ;;
     FinaSU) echo $((30000 + $2)) ;;
   esac
@@ -169,8 +169,8 @@ if [ "$VARIANT" == "FinaSU" ] && [ "$PIN_MODE" != "head" ]; then
   exit 0
 fi
 
-# ==================== C. SukiSU / BakaSU / FinaSU(latest)：官方 CI 构建的管理器 ====================
-# 最新通道：SukiSU 先锁定默认分支 HEAD，并把管理器限定为「版本与该 HEAD 一致」的构建，
+# ==================== C. SukiSU-Nova / BakaSU / FinaSU(latest)：官方 CI 构建的管理器 ====================
+# 最新通道：SukiSU-Nova 先锁定默认分支 HEAD，并把管理器限定为「版本与该 HEAD 一致」的构建，
 # 避免出现内核 35249 / 管理器 35248 这种版本错位。BakaSU / FinaSU 不锁默认分支 HEAD，
 # 直接取 build-manager.yml 按创建时间倒序的最新成功构建，内核锁定该构建提交。
 LATEST_PICK_BUILD=0
@@ -179,7 +179,9 @@ if [ "$VARIANT" = "BakaSU" ] || [ "$VARIANT" = "FinaSU" ]; then
 fi
 HEAD_SHA=""
 HEAD_VERSION=""
-if [ "$PIN_MODE" = "head" ] && [ "$LATEST_PICK_BUILD" = 0 ]; then
+# SukiSU-Nova 两个通道都先算默认分支 HEAD 版本：正式通道 Release 解析失败、
+# 回退到 CI 产物时用它作为目标版本，过滤掉旧版本构建
+if [ "$LATEST_PICK_BUILD" = 0 ]; then
   HEAD_SHA=$(git -C KernelSU rev-parse "origin/${EXPECTED_BRANCH}^{commit}" 2>/dev/null || true)
   if [ -z "$HEAD_SHA" ]; then
     HEAD_SHA=$(git ls-remote "https://github.com/$REPO.git" "refs/heads/$EXPECTED_BRANCH" 2>/dev/null | awk '{print $1}')
@@ -190,10 +192,28 @@ if [ "$PIN_MODE" = "head" ] && [ "$LATEST_PICK_BUILD" = 0 ]; then
     if [ -n "$HEAD_COUNT" ]; then
       HEAD_VERSION=$(ksu_version_of "$VARIANT" "$HEAD_COUNT")
     fi
-    echo "最新通道：$EXPECTED_BRANCH HEAD ${HEAD_SHA:0:8} 对应 KSU 版本 ${HEAD_VERSION:-未知}"
+    echo "$EXPECTED_BRANCH HEAD ${HEAD_SHA:0:8} 对应 KSU 版本 ${HEAD_VERSION:-未知}"
   else
     echo "::warning::无法解析 $EXPECTED_BRANCH HEAD，管理器按最新构建选择"
   fi
+fi
+
+# 回退 CI 时的目标版本：Release 标签提交优先，其次默认分支 HEAD
+TARGET_VERSION=""
+if [ -n "${REL_COMMIT:-}" ]; then
+  REL_COUNT=$(git -C KernelSU rev-list --count "$REL_COMMIT" 2>/dev/null || echo "")
+  if [ -z "$REL_COUNT" ]; then
+    git -C KernelSU fetch -q origin "$REL_COMMIT" 2>/dev/null || true
+    REL_COUNT=$(git -C KernelSU rev-list --count "$REL_COMMIT" 2>/dev/null || echo "")
+  fi
+  if [ -n "$REL_COUNT" ]; then
+    TARGET_VERSION=$(ksu_version_of "$VARIANT" "$REL_COUNT")
+    echo "目标版本：Release 提交 ${REL_COMMIT:0:8} -> $TARGET_VERSION"
+  fi
+fi
+if [ -z "$TARGET_VERSION" ] && [ -n "$HEAD_VERSION" ]; then
+  TARGET_VERSION="$HEAD_VERSION"
+  echo "目标版本：默认分支 HEAD -> $TARGET_VERSION"
 fi
 
 FILENAME="build-manager.yml"
@@ -275,7 +295,7 @@ fi
 
 # 去重后排序：
 #   正式 → 默认分支构建按时间倒序
-#   最新 → SukiSU 优先「版本与 HEAD 一致」的构建，其次默认分支，最后其他分支
+#   最新 → SukiSU-Nova 优先「版本与 HEAD 一致」的构建，其次默认分支，最后其他分支
 #          BakaSU/FinaSU 直接按构建时间倒序（最新 build-manager.yml 产物即目标）
 CAND_UNIQ=$(mktemp)
 sort -u -t$'\t' -k2,2 "$CAND_FILE" > "$CAND_UNIQ"
@@ -324,6 +344,24 @@ MANAGER_BUILD_ID=""
 MANAGER_HEAD_SHA=""
 MANAGER_BRANCH=""
 while IFS=$'\t' read -r PRIO CREATED BUILD_ID CAND_SHA CAND_BRANCH; do
+  # 版本校验：改名后的仓库里还留着旧公式（40000+commits-2815）构建的 artifact，
+  # 直接取“最新构建”会拿到内核/管理器版本错位的包（如内核 29998 / 管理器 41184）。
+  if [ -n "$TARGET_VERSION" ]; then
+    git -C KernelSU cat-file -e "${CAND_SHA}^{commit}" 2>/dev/null \
+      || git -C KernelSU fetch -q origin "$CAND_SHA" 2>/dev/null \
+      || true
+    CAND_COUNT_CHECK=$(git -C KernelSU rev-list --count "$CAND_SHA" 2>/dev/null || echo "")
+    if [ -z "$CAND_COUNT_CHECK" ]; then
+      echo "跳过构建 $BUILD_ID ($CAND_BRANCH, $CREATED): 无法解析提交 ${CAND_SHA:0:8} 的版本"
+      continue
+    fi
+    CAND_VERSION=$(ksu_version_of "$VARIANT" "$CAND_COUNT_CHECK")
+    if [ "$CAND_VERSION" != "$TARGET_VERSION" ]; then
+      echo "跳过构建 $BUILD_ID ($CAND_BRANCH, $CREATED): 版本 $CAND_VERSION ≠ 目标 $TARGET_VERSION"
+      continue
+    fi
+  fi
+
   ARTIFACTS=$(curl -s -H "Authorization: token ${GH_TOKEN}" \
     "https://api.github.com/repos/$REPO/actions/runs/$BUILD_ID/artifacts")
   CANDIDATE_LIST=$(get_manager_artifacts "$ARTIFACTS")
@@ -394,7 +432,7 @@ if [ "$VARIANT" == "FinaSU" ]; then
   echo "managerCertHash=$CERT_HASH" >> $GITHUB_OUTPUT
 fi
 
-# 内核侧将对齐到该构建的同一提交（BakaSU：直接检出；SukiSU：改写版本来源 REPO_BRANCH），
+# 内核侧将对齐到该构建的同一提交（BakaSU：直接检出；SukiSU-Nova：改写版本来源 REPO_BRANCH），
 # 因此对比"该提交对应的 KSU 版本"而非默认分支 HEAD 的版本
 PIN_COUNT=$(git -C KernelSU rev-list --count "$MANAGER_HEAD_SHA" 2>/dev/null || echo "")
 if [ -n "$PIN_COUNT" ]; then
@@ -416,7 +454,7 @@ echo "managerVer=$MANAGER_VERSION" >> $GITHUB_OUTPUT
 
 # 内核提交锁定策略：
 #   正式 → 锁定该构建提交（版本与管理器严格一致）
-#   最新 → SukiSU 锁定选择时刻的默认分支 HEAD；BakaSU/FinaSU 锁定产出管理器的构建提交
+#   最新 → SukiSU-Nova 锁定选择时刻的默认分支 HEAD；BakaSU/FinaSU 锁定产出管理器的构建提交
 if [ "$PIN_MODE" = "head" ] && [ -n "$HEAD_SHA" ] && [ "$LATEST_PICK_BUILD" = 0 ]; then
   if [ -n "$HEAD_VERSION" ] && [ "$MANAGER_VERSION" != "$HEAD_VERSION" ]; then
     echo "::warning::最新通道：未找到与 $EXPECTED_BRANCH HEAD 版本 $HEAD_VERSION 一致的管理器，回退到 $MANAGER_VERSION"

@@ -7,7 +7,7 @@ on:
         required: true
         type: string
       build_channel:
-        description: "构建通道：正式 (Release) 对齐官方发行版；最新 (HEAD) 跟随上游最新提交（FinaSU 取 build-manager.yml 最新构建）"
+        description: "构建管理器通道：正式 (Release) 对齐官方发行版；最新 (HEAD) 跟随上游最新提交（FinaSU 取 build-manager.yml 最新构建）"
         required: false
         type: string
         default: "正式 (Release)"
@@ -27,7 +27,7 @@ on:
         description: "官方 Manager 构建的实测版本号"
         value: ${{ jobs.get_ksu_manager.outputs.managerVer }}
       ksuCommit:
-        description: "内核侧对齐用的提交 SHA（正式=Release 标签/官方构建提交；最新=SukiSU 默认分支 HEAD，BakaSU/FinaSU 最新构建提交）"
+        description: "内核侧对齐用的提交 SHA（正式=Release 标签/官方构建提交；最新=SukiSU-Nova 默认分支 HEAD，BakaSU/FinaSU 最新构建提交）"
         value: ${{ jobs.get_ksu_manager.outputs.ksuCommit }}
       ksuBranch:
         description: "内核侧对齐提交所在的分支或 Release 标签（发布说明展示用）"
@@ -71,9 +71,9 @@ jobs:
       - name: 获取 KSU & SUSFS 版本
         id: get_version
         run: |
-          if [ "${{ inputs.ksu_variant }}" == "SukiSU" ]; then
-            echo "This is the SukiSU variant"
-            git clone https://github.com/SukiSU-Ultra/SukiSU-Ultra.git KernelSU
+          if [ "${{ inputs.ksu_variant }}" == "SukiSU-Nova" ]; then
+            echo "This is the SukiSU-Nova variant"
+            git clone https://github.com/SukiSU-Nova/SukiSU-Nova.git KernelSU
           elif [ "${{ inputs.ksu_variant }}" == "BakaSU" ]; then
             echo "This is the BakaSU variant"
             git clone https://github.com/Baka-SU/BakaSU.git KernelSU
@@ -90,8 +90,8 @@ jobs:
           # 计算KSU版本号
           KSU_GIT_VERSION=$(git rev-list --count HEAD)
 
-          if [ "${{ inputs.ksu_variant }}" == "SukiSU" ]; then
-            KSU_VERSION=$((40000 + KSU_GIT_VERSION - 2815))
+          if [ "${{ inputs.ksu_variant }}" == "SukiSU-Nova" ]; then
+            KSU_VERSION=$((30000 + KSU_GIT_VERSION - 4001))
           elif [ "${{ inputs.ksu_variant }}" == "FinaSU" ]; then
             # FinaSU 内核 Kbuild 与管理器 build.gradle.kts 均以 30000 + git 提交数计算版本
             KSU_VERSION=$((30000 + KSU_GIT_VERSION))
@@ -116,7 +116,7 @@ jobs:
       # 正式：管理器取官方「正式版」Release（prerelease=false，标签提交 + 该 Release 的 APK）；
       #       上游没有正式版 Release 时（如 BakaSU 只有 rc 预发布），
       #       改用官方默认分支最新上传构建，内核仍锁定该构建提交
-      # 最新：SukiSU/BakaSU 锁定默认分支 HEAD，管理器取与 HEAD 版本一致的最新构建（不限分支）；
+      # 最新：SukiSU-Nova/BakaSU 锁定默认分支 HEAD，管理器取与 HEAD 版本一致的最新构建（不限分支）；
       #       FinaSU 取 build-manager.yml 最新成功构建，内核锁定该构建提交
       - name: 选择管理器来源（构建通道）
         id: channel
@@ -129,7 +129,7 @@ jobs:
           echo "构建通道: $CHANNEL_RAW -> $CHANNEL_KIND (pin_mode=$PIN_MODE)"
 
           case "${{ inputs.ksu_variant }}" in
-            "SukiSU") REPO="SukiSU-Ultra/SukiSU-Ultra"; PREF="universal" ;;
+            "SukiSU-Nova") REPO="SukiSU-Nova/SukiSU-Nova"; PREF="universal" ;;
             "BakaSU") REPO="Baka-SU/BakaSU";           PREF="arm64" ;;
             "FinaSU") REPO="LyraVoid/FinaSU";          PREF="universal" ;;
             *) echo "::error::未知变体"; exit 1 ;;
@@ -142,22 +142,48 @@ jobs:
           } >> "$GITHUB_ENV"
 
           if [ "$CHANNEL_KIND" != "release" ]; then
-            echo "最新通道：SukiSU/BakaSU 锁定默认分支 HEAD；FinaSU 取 build-manager.yml 最新构建"
+            echo "最新通道：SukiSU-Nova/BakaSU 锁定默认分支 HEAD；FinaSU 取 build-manager.yml 最新构建"
             exit 0
           fi
 
           # ---------- 正式通道：解析官方 Release ----------
-          REL_JSON=""
+          # 仓库改名迁移后 /releases 列表端点可能稳定返回空数组（[]），
+          # 而 /releases/latest 与 /releases/tags/<tag> 仍正常。所以先取 latest，
+          # 再与列表合并去重，避免正式版被误判成“没有可用 Release”而回退到旧 CI 产物。
+          LATEST_JSON=""
           for ATTEMPT in 1 2 3; do
-            REL_JSON=$(curl -s --fail --max-time 30 \
+            LATEST_JSON=$(curl -s --fail --max-time 30 \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO/releases/latest") \
+              && [ -n "$LATEST_JSON" ] && [ "$LATEST_JSON" != "null" ] && break
+            echo "获取 $REPO 最新 Release 失败，重试 ($ATTEMPT/3)..."
+            LATEST_JSON=""
+            sleep 5
+          done
+
+          LIST_JSON=""
+          for ATTEMPT in 1 2 3; do
+            LIST_JSON=$(curl -s --fail --max-time 30 \
               -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
               -H "Accept: application/vnd.github+json" \
               "https://api.github.com/repos/$REPO/releases?per_page=40") \
-              && [ -n "$REL_JSON" ] && break
+              && [ -n "$LIST_JSON" ] && break
             echo "获取 $REPO 的 Release 列表失败，重试 ($ATTEMPT/3)..."
-            REL_JSON=""
+            LIST_JSON=""
             sleep 5
           done
+
+          REL_JSON=""
+          if [ -n "$LATEST_JSON" ] && [ -n "$LIST_JSON" ]; then
+            REL_JSON=$(printf '%s\n%s' "$(printf '%s' "$LATEST_JSON" | jq -c '[.]')" "$LIST_JSON" \
+              | jq -s -c 'add | unique_by(.id)')
+          elif [ -n "$LATEST_JSON" ]; then
+            REL_JSON=$(printf '%s' "$LATEST_JSON" | jq -c '[.]')
+          elif [ -n "$LIST_JSON" ]; then
+            REL_JSON="$LIST_JSON"
+          fi
+          echo "Release 候选数: $(printf '%s' "${REL_JSON:-[]}" | jq 'length')（latest=${LATEST_JSON:+yes} list=${LIST_JSON:+yes}）"
 
           # 选择规则：
           #   1) 跳过草稿与滚动发布标签（manager-ci / nightly / latest 等，其内容始终是最新 CI 产物）

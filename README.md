@@ -2,12 +2,12 @@
 
 # OnePlus KernelSU SUSFS
 
-**Automated OnePlus Kernel Builds | SukiSU / BakaSU / FinaSU + SUSFS Integration**
+**Automated OnePlus Kernel Builds | SukiSU-Nova / BakaSU / FinaSU + SUSFS Integration**
 
 [![Release](https://img.shields.io/github/v/release/LingLuo17/OnePlus_KernelSU_SUSFS?label=Release&style=flat-square&logo=github&logoColor=white&color=2ea44f)](https://github.com/LingLuo17/OnePlus_KernelSU_SUSFS/releases)
 [![Coolapk](https://img.shields.io/badge/Follow-Coolapk-3DDC84?style=flat-square&logo=android&logoColor=white)](http://www.coolapk.com/u/38407386)
 [<img src="https://img.shields.io/badge/Join-QQ%20Group-blue?style=flat-square&logo=github&logoColor=white">](https://qm.qq.com/q/9Wr9DiJJ9C)
-[![SukiSU](https://img.shields.io/badge/SukiSU-Supported-5AA300?style=flat-square)](https://github.com/SukiSU-Ultra/SukiSU-Ultra)
+[![SukiSU-Nova](https://img.shields.io/badge/SukiSU--Nova-Supported-5AA300?style=flat-square)](https://github.com/SukiSU-Nova/SukiSU-Nova)
 [![BakaSU](https://img.shields.io/badge/BakaSU-Supported-5AA300?style=flat-square)](https://github.com/Baka-SU/BakaSU)
 [![FinaSU](https://img.shields.io/badge/FinaSU-Supported-5AA300?style=flat-square)](https://github.com/LyraVoid/FinaSU)
 [![SUSFS](https://img.shields.io/badge/SUSFS-Integrated-E67E22?style=flat-square)](https://gitlab.com/simonpunk/susfs4ksu)
@@ -18,7 +18,7 @@
 
 ## 📖 Introduction
 
-This repository builds **OnePlus (Oppo/Realme) device kernels** with GitHub Actions, integrating SukiSU / BakaSU / FinaSU and the SUSFS kernel-level hiding solution, plus practical patches such as BBG and network enhancements.
+This repository builds **OnePlus (Oppo/Realme) device kernels** with GitHub Actions, integrating SukiSU-Nova / BakaSU / FinaSU and the SUSFS kernel-level hiding solution, plus practical patches such as BBG and network enhancements.
 
 - The build workflows are adapted from [WildKernels/OnePlus_KernelSU_SUSFS](https://github.com/WildKernels/OnePlus_KernelSU_SUSFS)
 - Supported devices: **Android 15 / Android 16 (ColorOS)** OnePlus devices, covering GKI `5.10 / 5.15 / 6.1 / 6.6 / 6.12`
@@ -30,14 +30,14 @@ This repository builds **OnePlus (Oppo/Realme) device kernels** with GitHub Acti
 | Workflow | Purpose | Notes |
 |:---|:---|:---|
 | `build-kernel-release.yml` | Batch build & optional release | Select `A15+16` / `A15` / `A16` or a GKI filter |
-| `oneplus-custom.yml` | Custom single-device build | 157 device versions, custom version name & build time |
+| `oneplus-custom.yml` | Custom single-device build | 157 device versions, custom kernel version name & build time |
 
 ## ✨ Features
 
 | Feature | Description |
 |:---|:---|
-| 🔐 KernelSU Variants | Supports SukiSU / BakaSU / FinaSU variants, selectable at build time |
-| 🔀 Build Channel | Release: latest **stable** upstream Release (tag commit + same-version manager), falls back to the newest official default-branch build when the upstream only ships pre-releases; Latest: SukiSU/BakaSU pin the default-branch HEAD and pick the newest manager build matching that version, while FinaSU uses the newest `build-manager.yml` build and pins that build's commit |
+| 🔐 KernelSU Variants | Supports SukiSU-Nova / BakaSU / FinaSU variants, selectable at build time |
+| 🔀 Build Manager Channel | Release: latest **stable** upstream Release (tag commit + same-version manager), falls back to the newest official default-branch build when the upstream only ships pre-releases; Latest: SukiSU-Nova/BakaSU pin the default-branch HEAD and pick the newest manager build matching that version, while FinaSU uses the newest `build-manager.yml` build and pins that build's commit |
 | 🙈 SUSFS | Kernel-level hiding working with KSU to complete environment spoofing |
 | 🔔 Re-Kernel | Optional Re-Kernel driver integration |
 | 🧩 NoMount | Optional NoMount VFS path-redirection metamodule; the matching companion module must be flashed separately |
@@ -56,11 +56,11 @@ This repository builds **OnePlus (Oppo/Realme) device kernels** with GitHub Acti
 1. **Fork this repository** (or use it directly)
 2. Go to the **Actions** page and pick a workflow:
    - `Build and Release OnePlus Kernels` — batch build by Android version or GKI filter, optionally publish a Release
-   - `OnePlus Custom Kernel Build` — pick one device (with kernel sub-version), choose SukiSU / BakaSU / FinaSU, custom version name & build time
+   - `OnePlus Custom Kernel Build` — pick one device (with kernel sub-version), choose SukiSU-Nova / BakaSU / FinaSU, custom kernel version name & build time
 3. Click **Run workflow** and fill in the parameters as needed
-   - `build_channel`: build channel
+   - `build_channel`: build manager channel
      - `正式 (Release)`: manager APK taken from the latest **stable** upstream Release (`prerelease=false`) and the kernel pinned to that release tag commit; when the upstream only ships rc/pre-releases (e.g. BakaSU), the newest official default-branch build is used and pinned instead
-     - `最新 (HEAD)`: SukiSU/BakaSU pin the default-branch HEAD and use the newest manager build matching that version (any branch); FinaSU uses the newest successful `build-manager.yml` build and pins the kernel to the same commit, so kernel and manager never drift apart
+     - `最新 (HEAD)`: SukiSU-Nova/BakaSU pin the default-branch HEAD and use the newest manager build matching that version (any branch); FinaSU uses the newest successful `build-manager.yml` build and pins the kernel to the same commit, so kernel and manager never drift apart
 4. Once the build finishes, download the **Artifacts** from the run page:
    - `AnyKernel3.zip` — flashable zip (recommended; flash via custom Recovery or KSU manager)
 
@@ -92,7 +92,7 @@ A commit is a hash string representing the state of a repository at a certain po
 ## 🙏 Acknowledgments
 
 - [WildKernels/OnePlus_KernelSU_SUSFS](https://github.com/WildKernels/OnePlus_KernelSU_SUSFS) & [WildKernels/kernel_patches](https://github.com/WildKernels/kernel_patches)
-- [SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra) / [BakaSU](https://github.com/Baka-SU/BakaSU) / [FinaSU](https://github.com/LyraVoid/FinaSU) / [KernelSU](https://github.com/tiann/KernelSU)
+- [SukiSU-Nova](https://github.com/SukiSU-Nova/SukiSU-Nova) / [BakaSU](https://github.com/Baka-SU/BakaSU) / [FinaSU](https://github.com/LyraVoid/FinaSU) / [KernelSU](https://github.com/tiann/KernelSU)
 - [SUSFS](https://gitlab.com/simonpunk/susfs4ksu)
 - [AnyKernel3](https://github.com/osm0sis/AnyKernel3)
 - [Baseband Guard](https://github.com/vc-teahouse/Baseband-guard)
@@ -132,7 +132,7 @@ A commit is a hash string representing the state of a repository at a certain po
 
 # OnePlus KernelSU SUSFS
 
-**自动化构建一加内核 | 集成 SukiSU / BakaSU / FinaSU + SUSFS**
+**自动化构建一加内核 | 集成 SukiSU-Nova / BakaSU / FinaSU + SUSFS**
 
 [English](#oneplus-kernelsu-susfs) | **简体中文**
 
@@ -140,7 +140,7 @@ A commit is a hash string representing the state of a repository at a certain po
 
 ## 📖 简介
 
-本仓库通过 GitHub Actions 自动编译 **一加（Oppo/Realme）设备内核**，集成 SukiSU / BakaSU / FinaSU 与 SUSFS 内核级隐藏方案，并附带 BBG 基带保护、网络增强等实用补丁。
+本仓库通过 GitHub Actions 自动编译 **一加（Oppo/Realme）设备内核**，集成 SukiSU-Nova / BakaSU / FinaSU 与 SUSFS 内核级隐藏方案，并附带 BBG 基带保护、网络增强等实用补丁。
 
 - 构建工作流修改自 [WildKernels/OnePlus_KernelSU_SUSFS](https://github.com/WildKernels/OnePlus_KernelSU_SUSFS)
 - 支持设备：**Android 15 / Android 16（ColorOS）** 一加设备，覆盖 GKI `5.10 / 5.15 / 6.1 / 6.6 / 6.12`
@@ -152,14 +152,14 @@ A commit is a hash string representing the state of a repository at a certain po
 | 工作流 | 用途 | 说明 |
 |:---|:---|:---|
 | `build-kernel-release.yml` | 批量构建 & 可选发布 | 选择 `A15+16` / `A15` / `A16` 或 GKI 过滤 |
-| `oneplus-custom.yml` | 自定义单设备构建 | 157 个设备版本、自定义版本名与构建时间 |
+| `oneplus-custom.yml` | 自定义单设备构建 | 157 个设备版本、自定义内核版本名与构建时间 |
 
 ## ✨ 功能特性
 
 | 特性 | 说明 |
 |:---|:---|
-| 🔐 KernelSU 变体 | 支持 SukiSU / BakaSU / FinaSU 变体，构建时按需选择 |
-| 🔀 构建通道 | 正式：上游最新**正式版** Release（标签提交 + 同版本管理器），上游只有预发布版时改用官方默认分支最新上传构建；最新：SukiSU/BakaSU 锁定默认分支 HEAD 并取与 HEAD 版本一致的最新构建，FinaSU 取最新 `build-manager.yml` 成功构建并锁定该构建提交 |
+| 🔐 KernelSU 变体 | 支持 SukiSU-Nova / BakaSU / FinaSU 变体，构建时按需选择 |
+| 🔀 构建管理器通道 | 正式：上游最新**正式版** Release（标签提交 + 同版本管理器），上游只有预发布版时改用官方默认分支最新上传构建；最新：SukiSU-Nova/BakaSU 锁定默认分支 HEAD 并取与 HEAD 版本一致的最新构建，FinaSU 取最新 `build-manager.yml` 成功构建并锁定该构建提交 |
 | 🙈 SUSFS | 内核级隐藏，配合 KSU 完成环境伪装 |
 | 🔔 Re-Kernel | 可选集成 Re-Kernel 驱动 |
 | 🧩 NoMount | 可选 NoMount VFS 路径重定向挂载元模块；需单独刷入配套模块 |
@@ -178,11 +178,11 @@ A commit is a hash string representing the state of a repository at a certain po
 1. **Fork 本仓库**（或直接使用本仓库）
 2. 进入 **Actions** 页面，选择工作流：
    - `Build and Release OnePlus Kernels` —— 按安卓版本或 GKI 过滤批量构建，可选发布 Release
-   - `OnePlus Custom Kernel Build` —— 选择单台设备（含内核子版本）、SukiSU / BakaSU / FinaSU、自定义版本名与构建时间
+   - `OnePlus Custom Kernel Build` —— 选择单台设备（含内核子版本）、SukiSU-Nova / BakaSU / FinaSU、自定义内核版本名与构建时间
 3. 点击 **Run workflow**，按需填写参数
-   - `build_channel`：构建通道
+   - `build_channel`：构建管理器通道
      - `正式 (Release)`：使用上游最新**正式版** Release（`prerelease=false`）的管理器 APK，内核检出该 Release 标签的同一提交；上游只有 rc/预发布版时（如 BakaSU），改用官方默认分支最新上传构建并锁定该提交
-     - `最新 (HEAD)`：SukiSU/BakaSU 内核锁定默认分支 HEAD，管理器取与 HEAD 版本号一致的最新构建（不限分支）；FinaSU 取最新一次 `build-manager.yml` 成功构建，并把内核锁定到该构建提交，避免内核与管理器版本错位
+     - `最新 (HEAD)`：SukiSU-Nova/BakaSU 内核锁定默认分支 HEAD，管理器取与 HEAD 版本号一致的最新构建（不限分支）；FinaSU 取最新一次 `build-manager.yml` 成功构建，并把内核锁定到该构建提交，避免内核与管理器版本错位
 4. 构建完成后，在本次运行页面下载 **Artifacts**：
    - `AnyKernel3.zip` —— 卡刷包（推荐，配合自定义 Recovery 或 KSU 管理器刷入）
 
@@ -214,7 +214,7 @@ A commit is a hash string representing the state of a repository at a certain po
 ## 🙏 致谢
 
 - [WildKernels/OnePlus_KernelSU_SUSFS](https://github.com/WildKernels/OnePlus_KernelSU_SUSFS) & [WildKernels/kernel_patches](https://github.com/WildKernels/kernel_patches)
-- [SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra) / [BakaSU](https://github.com/Baka-SU/BakaSU) / [FinaSU](https://github.com/LyraVoid/FinaSU) / [KernelSU](https://github.com/tiann/KernelSU)
+- [SukiSU-Nova](https://github.com/SukiSU-Nova/SukiSU-Nova) / [BakaSU](https://github.com/Baka-SU/BakaSU) / [FinaSU](https://github.com/LyraVoid/FinaSU) / [KernelSU](https://github.com/tiann/KernelSU)
 - [SUSFS](https://gitlab.com/simonpunk/susfs4ksu)
 - [AnyKernel3](https://github.com/osm0sis/AnyKernel3)
 - [Baseband Guard](https://github.com/vc-teahouse/Baseband-guard)

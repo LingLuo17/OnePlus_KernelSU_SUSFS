@@ -1,5 +1,5 @@
-name: 'Build OnePlus Kernel with SukiSU/BakaSU/FinaSU'
-description: 'Build OnePlus GKI kernel with SukiSU/BakaSU/FinaSU and SUSFS'
+name: 'Build OnePlus Kernel with SukiSU-Nova/BakaSU/FinaSU'
+description: 'Build OnePlus GKI kernel with SukiSU-Nova/BakaSU/FinaSU and SUSFS'
 
 inputs:
   op_config_json:
@@ -11,11 +11,11 @@ inputs:
     required: true
     type: choice
     options:
-      - SukiSU
+      - SukiSU-Nova
       - BakaSU
       - FinaSU
   ksu_branch_or_hash:
-    description: 'KSU branch or commit hash (empty = auto-detect by ksu_type: SukiSU→builtin, BakaSU→main, FinaSU→master)'
+    description: 'KSU branch or commit hash (empty = auto-detect by ksu_type: SukiSU-Nova→builtin, BakaSU→main, FinaSU→master)'
     required: false
     type: string
     default: ""
@@ -30,7 +30,7 @@ inputs:
     type: boolean
     default: false
   ksu_commit:
-    description: 'Align the kernel-side KSU version source with the latest officially uploaded manager build: BakaSU checks KernelSU out at this commit, SukiSU rewrites its builtin Makefile REPO_BRANCH to it (empty = follow the passed branch/HEAD)'
+    description: 'Align the kernel-side KSU version source with the latest officially uploaded manager build: BakaSU checks KernelSU out at this commit, SukiSU-Nova rewrites its builtin Makefile REPO_BRANCH to it (empty = follow the passed branch/HEAD)'
     required: false
     type: string
     default: ''
@@ -1174,24 +1174,24 @@ runs:
         sed -i 's/protected_modules = \[.*\]/protected_modules = []/' common/modules.bzl || true
         echo "::endgroup::"
 
-    - name: Add SukiSU
+    - name: Add SukiSU-Nova
       shell: bash
-      if: ${{ inputs.ksu_type == 'SukiSU' }}
+      if: ${{ inputs.ksu_type == 'SukiSU-Nova' }}
       run: |
         set -euo pipefail
-        echo "::group::Add SukiSU"
+        echo "::group::Add SukiSU-Nova"
         cd "$KERNEL_PLATFORM_FOLDER"
-        echo "Adding SukiSU..."
+        echo "Adding SukiSU-Nova..."
         KSU_INPUT="${{ inputs.ksu_branch_or_hash }}"
         if [ -z "$KSU_INPUT" ]; then
           # builtin 分支：内置 SUSFS 支持
           KSU_INPUT="builtin"
         fi
-        curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s "$KSU_INPUT"
+        curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/SukiSU-Nova/SukiSU-Nova/main/kernel/setup.sh" | bash -s "$KSU_INPUT"
         git submodule update --init --recursive || true
 
         # 内核侧（builtin 分支）KSU 版本来源：Makefile 以 REPO_BRANCH 指向分支的提交数
-        # 计算 KSU_VERSION = 40000 + 提交数 - 2815（优先 GitHub API，回退本地 rev-list）。
+        # 计算 KSU_VERSION = 30000 + 提交数 - 4001（优先 GitHub API，回退本地 rev-list）。
         # 将 REPO_BRANCH 改写为官方最新上传 Manager 构建的提交，
         # 保证内核 KSU 版本与拉取的管理器安装包严格一致
         KSU_COMMIT="${{ inputs.ksu_commit }}"
@@ -1211,16 +1211,16 @@ runs:
             echo "::error::未能在 KernelSU/kernel/Makefile 中对齐 REPO_BRANCH（上游 Makefile 结构可能已变化），无法对齐管理器版本"
             exit 1
           fi
-          echo "SukiSU 内核侧版本来源已对齐官方上传构建提交 $KSU_COMMIT (KSU 版本 $((40000 + $(git -C KernelSU rev-list --count "$KSU_COMMIT") - 2815)))"
+          echo "SukiSU-Nova 内核侧版本来源已对齐官方上传构建提交 $KSU_COMMIT (KSU 版本 $((30000 + $(git -C KernelSU rev-list --count "$KSU_COMMIT") - 4001)))"
         fi
 
-        # SukiSU 版本名默认带 @分支名 后缀，改写为品牌标识
+        # SukiSU-Nova 版本名默认带 @分支名 后缀，改写为品牌标识
         if [ -f "$GITHUB_WORKSPACE/scripts/ksu_post_setup.sh" ]; then
           bash "$GITHUB_WORKSPACE/scripts/ksu_post_setup.sh" "$KSU_FOLDER" sukisu
-          echo "✅ SukiSU 版本标识已注入 @LingLuo"
+          echo "✅ SukiSU-Nova 版本标识已注入 @LingLuo"
         fi
 
-        # ── Kernel-tree API compatibility for SukiSU (auto-detected, all kernel versions) ──
+        # ── Kernel-tree API compatibility for SukiSU-Nova (auto-detected, all kernel versions) ──
         # Newer BSP kernel trees (sm8845/sm8850/mt6789/mt6993, android16-6.12.38+) diverged
         # from what the builtin branch expects and fail to compile without these fixes:
         # 1) struct netlink_kernel_cfg lost its `cb_mutex` member -> the dynamic member
@@ -1231,7 +1231,7 @@ runs:
         # 3) KERNEL_SU_UAPI_VERSION on the builtin branch can lag the manager built
         #    from main; the dynamic sync below closes the gap whenever it reopens.
         # （2026-10-24 清理：pkg_observer track_throne 标志 / selinux 跳板 /
-        #   manager ioctl 三项一次性兼容已随 SukiSU builtin ce75122b
+        #   manager ioctl 三项一次性兼容已随 SukiSU-Nova builtin ce75122b
         #   （2026-10-21 同步官方 KernelSU）上游修复而移除：pkg_observer 回归
         #   track_throne(false)，selinux_hide 改为静态函数指针，动态管理器
         #   ioctl 重构。KSU_KERNEL_DIR 兼容已恢复（见下方第 4 项）：builtin
@@ -1285,13 +1285,13 @@ runs:
         if [ -f "$SU_KB" ] && grep -qF 'KSU_KERNEL_DIR := $(srctree)/$(src)' "$SU_KB"; then
           sed -i 's|^KSU_KERNEL_DIR := \$(srctree)/\$(src)$|KSU_KERNEL_DIR := $(if $(wildcard $(srctree)/$(src)/preinit/runner/runner.c),$(srctree)/$(src),$(src))|' "$SU_KB"
           grep -qF 'KSU_KERNEL_DIR := $(if $(wildcard $(srctree)/$(src)/preinit/runner/runner.c),$(srctree)/$(src),$(src))' "$SU_KB" \
-            || { echo "::error::SukiSU Makefile KSU_KERNEL_DIR 重写失败（上游结构可能已变化）"; exit 1; }
-          echo "🔧 compat: SukiSU KSU_KERNEL_DIR wildcard-guarded against 6.12 relative \$(src)"
+            || { echo "::error::SukiSU-Nova Makefile KSU_KERNEL_DIR 重写失败（上游结构可能已变化）"; exit 1; }
+          echo "🔧 compat: SukiSU-Nova KSU_KERNEL_DIR wildcard-guarded against 6.12 relative \$(src)"
         fi
 
         cd KernelSU/kernel
 
-        # SukiSU Kbuild 自动计算版本 (40000 + REPO_BRANCH 指向分支的提交数 - 2815)
+        # SukiSU-Nova Kbuild 自动计算版本 (30000 + REPO_BRANCH 指向分支的提交数 - 4001)
         KSU_COMMIT_SHA=$(git rev-parse HEAD)
         echo "KSU_COMMIT_SHA=$KSU_COMMIT_SHA" >> $GITHUB_ENV
         echo "KSU_COMMIT_DATE=$(git log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M:%S %z' 2>/dev/null || echo unknown)" >> $GITHUB_ENV
@@ -1302,27 +1302,27 @@ runs:
           COMMITS=$(git rev-list --count "$KSU_COMMIT")
         else
           COMMITS=$(curl -sI -H "Authorization: Bearer ${{ inputs.github_token }}" \
-            "https://api.github.com/repos/SukiSU-Ultra/SukiSU-Ultra/commits?sha=main&per_page=1" \
+            "https://api.github.com/repos/SukiSU-Nova/SukiSU-Nova/commits?sha=main&per_page=1" \
             | grep -i '^link:' | sed -n 's/.*page=\([0-9]*\)>; rel="last".*/\1/p' || true)
           if [ -z "$COMMITS" ]; then
             COMMITS=$(git rev-list --count HEAD 2>/dev/null || echo "0")
           fi
         fi
-        KSU_VERSION=$(expr 40000 + ${COMMITS:-0} - 2815)
+        KSU_VERSION=$(expr 30000 + ${COMMITS:-0} - 4001)
         
         
         cd ..
         
-        echo "Add SukiSU Configuration Settings"
+        echo "Add SukiSU-Nova Configuration Settings"
         cat >> "$COMMON_KERNEL_FOLDER/arch/arm64/configs/gki_defconfig" <<EOF
         CONFIG_KSU=y
         EOF
         
-        echo "SukiSU" >> "${ARTIFACTS_FOLDER}/${OP_MODEL}_${OP_OS_VERSION}.txt"
+        echo "SukiSU-Nova" >> "${ARTIFACTS_FOLDER}/${OP_MODEL}_${OP_OS_VERSION}.txt"
         echo "$KSU_VERSION" >> "${ARTIFACTS_FOLDER}/${OP_MODEL}_${OP_OS_VERSION}.txt"
         echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
-        echo "SukiSU Version: $KSU_VERSION"
-        echo "✅ SukiSU added (branch/commit: $KSU_INPUT, sha: ${KSU_COMMIT_SHA:0:8})"
+        echo "SukiSU-Nova Version: $KSU_VERSION"
+        echo "✅ SukiSU-Nova added (branch/commit: $KSU_INPUT, sha: ${KSU_COMMIT_SHA:0:8})"
         echo "::endgroup::"
 
     - name: Add BakaSU
@@ -1531,7 +1531,7 @@ runs:
         #   No rule to make target '../../drivers/kernelsu/preinit/runner/runner.c'
         # （此前两步法补丁强制 KSU_NO_PREINIT 关掉 preinit 故未暴露；切到内置
         # SUSFS 保留 kprobe preinit 后必现）。改为 $(wildcard) 自校验拼接
-        # （SukiSU builtin 同款手法）：拼出的路径看得到 runner.c 才用它，否则
+        # （SukiSU-Nova builtin 同款手法）：拼出的路径看得到 runner.c 才用它，否则
         # 退回 $(src)；≤6.6 树 $(src) 相对 + $(srctree) 绝对，取值与原来一致。
         FINA_KB="$KSU_FOLDER/kernel/Kbuild"
         if [ -f "$FINA_KB" ] && grep -qF 'KSU_KERNEL_DIR := $(srctree)/$(src)' "$FINA_KB"; then
@@ -1544,7 +1544,7 @@ runs:
         # 内核完整版本号（KSU_VERSION_FULL，形如 v<tag>-<sha>@<branch>）分支段校准：
         # 工作流以 --detach 检出（master / 管理器对齐提交），rev-parse --abbrev-ref
         # 返回 "HEAD"，管理器「内核完整版本」显示 v1.0.x-xxxx@HEAD。
-        # 与 SukiSU/BakaSU 一致替换为品牌名 @LingLuo（ksu_post_setup.sh finasu 模式）
+        # 与 SukiSU-Nova/BakaSU 一致替换为品牌名 @LingLuo（ksu_post_setup.sh finasu 模式）
         bash "$GITHUB_WORKSPACE/scripts/ksu_post_setup.sh" "$KSU_FOLDER" finasu
         grep -qF 'KSU_VERSION_FULL := v$(if $(KSU_VERSION_TAG),$(KSU_VERSION_TAG),unknown)-$(KSU_VERSION_SHA)@LingLuo' KernelSU/kernel/Kbuild \
           || { echo "::error::FinaSU 内核完整版本号分支段替换失败（上游 Kbuild 版本行可能已变化）"; exit 1; }
@@ -1574,7 +1574,7 @@ runs:
 
         # susfs4ksu R28 新增 getpriority/priority uid filter 特性，整套代码（含
         # susfs_switch_to_ksu_domain / susfs_restore_creds 两个辅助函数）以
-        # CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER 为开关。SukiSU/FinaSU 驱动已
+        # CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER 为开关。SukiSU-Nova/FinaSU 驱动已
         # 自带该 Kconfig，BakaSU 仍未定义；仅对缺少该选项的驱动把 guard 上提到
         # CONFIG_KSU_SUSFS，避免未使用函数/隐式声明导致编译失败。
         # 仅改写预处理指令行：susfs.c 里 copy_config_to_buf() 的
@@ -1608,7 +1608,7 @@ runs:
           # docs/builtin-integration.md）。上游明确要求驱动树不再套用
           # 10_enable_susfs_for_ksu.patch —— 多数 hunk 已内置、钩子模型不同，
           # 强套必然 reject（master 重构后 Kconfig/adb_root.c/sucompat.h/
-          # setuid_hook.h/selinux/* 七处漂移）。与 SukiSU/BakaSU 同路子：
+          # setuid_hook.h/selinux/* 七处漂移）。与 SukiSU-Nova/BakaSU 同路子：
           # defconfig 打开 CONFIG_KSU_SUSFS 即可（下方统一片段已含）。
           # 按检出内容检测；master / 管理器对齐提交均含内置集成，
           # 检测不到即固定到了过老提交，显式报错而不是静默丢掉 SUSFS。
@@ -1637,9 +1637,9 @@ runs:
             exit 1
           fi
         else
-          # SukiSU (builtin) / BakaSU (main) 内核代码已内置 SUSFS 集成 (config KSU_SUSFS)，
+          # SukiSU-Nova (builtin) / BakaSU (main) 内核代码已内置 SUSFS 集成 (config KSU_SUSFS)，
           # 无需再对 KSU 树打 10_enable_susfs_for_ksu.patch，仅保留内核侧 SUSFS 补丁。
-          echo "SukiSU/BakaSU 使用内置 SUSFS 支持，跳过 KSU 树 SUSFS 补丁"
+          echo "SukiSU-Nova/BakaSU 使用内置 SUSFS 支持，跳过 KSU 树 SUSFS 补丁"
         fi
         
         cd "$COMMON_KERNEL_FOLDER"
@@ -3200,8 +3200,8 @@ runs:
             echo "BakaSU Version: ${KSUVER:-unknown}"
             echo "BakaSU commit SHA: ${KSU_SHA:-unknown}"
           else
-            echo "SukiSU Version: ${KSUVER:-unknown}"
-            echo "SukiSU commit SHA: ${KSU_SHA:-unknown}"
+            echo "SukiSU-Nova Version: ${KSUVER:-unknown}"
+            echo "SukiSU-Nova commit SHA: ${KSU_SHA:-unknown}"
           fi
           if [ "${{ env.OP_SUSFS }}" = true ]; then
             echo "SUSFS Version: ${SUSVER:-unknown}"

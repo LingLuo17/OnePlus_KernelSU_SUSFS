@@ -11,7 +11,7 @@
 #           而 BakaSU 新模型的定义是 8 参（多 orig_sid_p/orig_rc_p），需把
 #           susfs 补丁的 6 参调用/声明归一化为 8 参（不加转换会以错误签名
 #           链接，ThinLTO 报错或运行时 kernel panic）。
-# 旧形态 KernelSU（仍定义 fake_state，如部分 SukiSU 检出）无需转换，自动跳过。
+# 旧形态 KernelSU（仍定义 fake_state，如部分 SukiSU-Nova 检出）无需转换，自动跳过。
 # 幂等：重复运行时所有替换均无匹配（仅告警），不会二次改写。
 #
 # 用法: apply_selinux_new_model.sh <KernelSU_dir>  （cwd 必须是内核源码树根）

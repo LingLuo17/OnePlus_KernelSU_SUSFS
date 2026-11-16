@@ -41,7 +41,7 @@ apply_sukisu() {
 # KSU_VERSION_BRANCH = git rev-parse --abbrev-ref HEAD。工作流以 --detach 检出
 # （master / 管理器对齐提交），abbrev-ref 返回 "HEAD"，管理器显示
 # "内核完整版本: v1.0.9-xxxx@HEAD"。把分支段固定替换为品牌名，与
-# SukiSU/BakaSU 的版本标识一致。
+# SukiSU-Nova/BakaSU 的版本标识一致。
 apply_finasu() {
   local kbuild="$KSU_DIR/kernel/Kbuild"
   if [ -f "$kbuild" ]; then

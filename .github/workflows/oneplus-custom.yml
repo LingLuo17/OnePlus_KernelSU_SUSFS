@@ -183,12 +183,12 @@ on:
         required: true
         type: choice
         options:
-          - SukiSU
+          - SukiSU-Nova
           - BakaSU
           - FinaSU
         default: FinaSU
       build_channel:
-        description: '构建通道（正式=官方 Release 发行版，最新=上游最新构建；BakaSU/FinaSU 最新取 build-manager 构建）'
+        description: '构建管理器通道'
         required: false
         type: choice
         options:
@@ -196,7 +196,7 @@ on:
           - "最新 (HEAD)"
         default: "正式 (Release)"
       custom_version:
-        description: '自定义版本名（可选）'
+        description: '自定义内核版本名'
         required: false
         type: string
         default: ''
@@ -388,12 +388,12 @@ jobs:
           device=$(echo "$device" | jq -c --argjson dn "$dn" '.ds = $dn | .ntsync = $dn')
           echo "Droidspaces/NTSync override: $dn"
 
-          # KernelSU 变体（固定默认分支：SukiSU→builtin, BakaSU→main, FinaSU→master）
+          # KernelSU 变体（固定默认分支：SukiSU-Nova→builtin, BakaSU→main, FinaSU→master）
           ksu_variant='${{ inputs.ksu_variant }}'
           case "$ksu_variant" in
-            SukiSU)
+            SukiSU-Nova)
               ksu_hash="builtin"
-              KSU_REPO="SukiSU-Ultra/SukiSU-Ultra"
+              KSU_REPO="SukiSU-Nova/SukiSU-Nova"
               ;;
             BakaSU)
               ksu_hash="main"
@@ -435,7 +435,7 @@ jobs:
             echo "| Setting | Value |"
             echo "|---------|-------|"
             echo "| Device | \`${{ steps.set-matrix.outputs.model_display }}\` |"
-            echo "| KernelSU | \`${{ inputs.ksu_variant }}\` @ \`${{ inputs.ksu_variant == 'SukiSU' && 'builtin' || (inputs.ksu_variant == 'FinaSU' && 'master' || 'main') }}\` |"
+            echo "| KernelSU | \`${{ inputs.ksu_variant }}\` @ \`${{ inputs.ksu_variant == 'SukiSU-Nova' && 'builtin' || (inputs.ksu_variant == 'FinaSU' && 'master' || 'main') }}\` |"
             if [ "${{ inputs.ksu_variant }}" = "FinaSU" ]; then
               echo "| FinaSU Hook | \`SUSFS Inline\` |"
             fi
