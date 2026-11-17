@@ -73,7 +73,7 @@ jobs:
         run: |
           if [ "${{ inputs.ksu_variant }}" == "SukiSU-Nova" ]; then
             echo "This is the SukiSU-Nova variant"
-            git clone https://github.com/SukiSU-Nova/SukiSU-Nova.git KernelSU
+            git clone https://git.zako.shirkneko.top:20004/shirkneko/SukiSU.git KernelSU
           elif [ "${{ inputs.ksu_variant }}" == "BakaSU" ]; then
             echo "This is the BakaSU variant"
             git clone https://github.com/Baka-SU/BakaSU.git KernelSU
@@ -91,7 +91,7 @@ jobs:
           KSU_GIT_VERSION=$(git rev-list --count HEAD)
 
           if [ "${{ inputs.ksu_variant }}" == "SukiSU-Nova" ]; then
-            KSU_VERSION=$((30000 + KSU_GIT_VERSION - 4001))
+            KSU_VERSION=$((30000 + KSU_GIT_VERSION + 996))
           elif [ "${{ inputs.ksu_variant }}" == "FinaSU" ]; then
             # FinaSU 内核 Kbuild 与管理器 build.gradle.kts 均以 30000 + git 提交数计算版本
             KSU_VERSION=$((30000 + KSU_GIT_VERSION))
@@ -116,7 +116,8 @@ jobs:
       # 正式：管理器取官方「正式版」Release（prerelease=false，标签提交 + 该 Release 的 APK）；
       #       上游没有正式版 Release 时（如 BakaSU 只有 rc 预发布），
       #       改用官方默认分支最新上传构建，内核仍锁定该构建提交
-      # 最新：SukiSU-Nova/BakaSU 锁定默认分支 HEAD，管理器取与 HEAD 版本一致的最新构建（不限分支）；
+      # 最新：SukiSU-Nova 取 zako 滚动 Release（manager-ci 等预发布）的管理器 APK，内核锁定 main HEAD；
+      #       BakaSU 锁定默认分支 HEAD，管理器取与 HEAD 版本一致的最新构建（不限分支）；
       #       FinaSU 取 build-manager.yml 最新成功构建，内核锁定该构建提交
       - name: 选择管理器来源（构建通道）
         id: channel
@@ -129,7 +130,7 @@ jobs:
           echo "构建通道: $CHANNEL_RAW -> $CHANNEL_KIND (pin_mode=$PIN_MODE)"
 
           case "${{ inputs.ksu_variant }}" in
-            "SukiSU-Nova") REPO="SukiSU-Nova/SukiSU-Nova"; PREF="universal" ;;
+            "SukiSU-Nova") REPO="shirkneko/SukiSU";     PREF="universal" ;;
             "BakaSU") REPO="Baka-SU/BakaSU";           PREF="arm64" ;;
             "FinaSU") REPO="LyraVoid/FinaSU";          PREF="universal" ;;
             *) echo "::error::未知变体"; exit 1 ;;
@@ -141,58 +142,93 @@ jobs:
             echo "MANAGER_SOURCE=ci"
           } >> "$GITHUB_ENV"
 
-          if [ "$CHANNEL_KIND" != "release" ]; then
-            echo "最新通道：SukiSU-Nova/BakaSU 锁定默认分支 HEAD；FinaSU 取 build-manager.yml 最新构建"
-            exit 0
-          fi
+          if [ "${{ inputs.ksu_variant }}" == "SukiSU-Nova" ]; then
+            # SukiSU-Nova 已迁至 zako（Forgejo）：管理器只从该仓库 Release 获取。
+            # 正式通道取最新正式版（prerelease=false），最新通道取滚动预发布 manager-ci。
+            API_BASE="https://git.zako.shirkneko.top:20004/api/v1/repos/shirkneko/SukiSU"
+            REPO_URL="https://git.zako.shirkneko.top:20004/shirkneko/SukiSU.git"
+            ALLOW_ROLLING=0
+            ALLOW_PRE=0
+            if [ "$CHANNEL_KIND" = "latest" ]; then
+              ALLOW_ROLLING=1
+              ALLOW_PRE=1
+              echo "最新通道：SukiSU-Nova 取 zako 最新 Release（含 manager-ci 预发布）"
+            else
+              echo "正式通道：SukiSU-Nova 取 zako 最新正式 Release（prerelease=false）"
+            fi
+            REL_JSON=""
+            for ATTEMPT in 1 2 3; do
+              REL_JSON=$(curl -s --fail --max-time 30 "$API_BASE/releases?limit=50") \
+                && [ -n "$REL_JSON" ] && break
+              echo "获取 zako SukiSU Release 列表失败，重试 ($ATTEMPT/3)..."
+              REL_JSON=""
+              sleep 5
+            done
+            if [ -z "$REL_JSON" ]; then
+              echo "::error::无法获取 zako SukiSU Release 列表"
+              exit 1
+            fi
+            echo "Release 候选数: $(printf '%s' "$REL_JSON" | jq 'length')（zako）"
+          else
+            if [ "$CHANNEL_KIND" != "release" ]; then
+              echo "最新通道：BakaSU 锁定默认分支 HEAD；FinaSU 取 build-manager.yml 最新构建"
+              exit 0
+            fi
 
-          # ---------- 正式通道：解析官方 Release ----------
-          # 仓库改名迁移后 /releases 列表端点可能稳定返回空数组（[]），
-          # 而 /releases/latest 与 /releases/tags/<tag> 仍正常。所以先取 latest，
-          # 再与列表合并去重，避免正式版被误判成“没有可用 Release”而回退到旧 CI 产物。
-          LATEST_JSON=""
-          for ATTEMPT in 1 2 3; do
-            LATEST_JSON=$(curl -s --fail --max-time 30 \
-              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/$REPO/releases/latest") \
-              && [ -n "$LATEST_JSON" ] && [ "$LATEST_JSON" != "null" ] && break
-            echo "获取 $REPO 最新 Release 失败，重试 ($ATTEMPT/3)..."
+            API_BASE="https://api.github.com/repos/$REPO"
+            REPO_URL="https://github.com/$REPO.git"
+            ALLOW_ROLLING=0
+            ALLOW_PRE=0
+
+            # ---------- 正式通道：解析官方 Release ----------
+            # 仓库改名迁移后 /releases 列表端点可能稳定返回空数组（[]），
+            # 而 /releases/latest 与 /releases/tags/<tag> 仍正常。所以先取 latest，
+            # 再与列表合并去重，避免正式版被误判成“没有可用 Release”而回退到旧 CI 产物。
             LATEST_JSON=""
-            sleep 5
-          done
+            for ATTEMPT in 1 2 3; do
+              LATEST_JSON=$(curl -s --fail --max-time 30 \
+                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/$REPO/releases/latest") \
+                && [ -n "$LATEST_JSON" ] && [ "$LATEST_JSON" != "null" ] && break
+              echo "获取 $REPO 最新 Release 失败，重试 ($ATTEMPT/3)..."
+              LATEST_JSON=""
+              sleep 5
+            done
 
-          LIST_JSON=""
-          for ATTEMPT in 1 2 3; do
-            LIST_JSON=$(curl -s --fail --max-time 30 \
-              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/$REPO/releases?per_page=40") \
-              && [ -n "$LIST_JSON" ] && break
-            echo "获取 $REPO 的 Release 列表失败，重试 ($ATTEMPT/3)..."
             LIST_JSON=""
-            sleep 5
-          done
+            for ATTEMPT in 1 2 3; do
+              LIST_JSON=$(curl -s --fail --max-time 30 \
+                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/$REPO/releases?per_page=40") \
+                && [ -n "$LIST_JSON" ] && break
+              echo "获取 $REPO 的 Release 列表失败，重试 ($ATTEMPT/3)..."
+              LIST_JSON=""
+              sleep 5
+            done
 
-          REL_JSON=""
-          if [ -n "$LATEST_JSON" ] && [ -n "$LIST_JSON" ]; then
-            REL_JSON=$(printf '%s\n%s' "$(printf '%s' "$LATEST_JSON" | jq -c '[.]')" "$LIST_JSON" \
-              | jq -s -c 'add | unique_by(.id)')
-          elif [ -n "$LATEST_JSON" ]; then
-            REL_JSON=$(printf '%s' "$LATEST_JSON" | jq -c '[.]')
-          elif [ -n "$LIST_JSON" ]; then
-            REL_JSON="$LIST_JSON"
+            REL_JSON=""
+            if [ -n "$LATEST_JSON" ] && [ -n "$LIST_JSON" ]; then
+              REL_JSON=$(printf '%s\n%s' "$(printf '%s' "$LATEST_JSON" | jq -c '[.]')" "$LIST_JSON" \
+                | jq -s -c 'add | unique_by(.id)')
+            elif [ -n "$LATEST_JSON" ]; then
+              REL_JSON=$(printf '%s' "$LATEST_JSON" | jq -c '[.]')
+            elif [ -n "$LIST_JSON" ]; then
+              REL_JSON="$LIST_JSON"
+            fi
+            echo "Release 候选数: $(printf '%s' "${REL_JSON:-[]}" | jq 'length')（latest=${LATEST_JSON:+yes} list=${LIST_JSON:+yes}）"
           fi
-          echo "Release 候选数: $(printf '%s' "${REL_JSON:-[]}" | jq 'length')（latest=${LATEST_JSON:+yes} list=${LIST_JSON:+yes}）"
 
-          # 选择规则：
-          #   1) 跳过草稿与滚动发布标签（manager-ci / nightly / latest 等，其内容始终是最新 CI 产物）
+          # 选择规则（SukiSU-Nova 最新通道允许滚动标签与预发布，管理器即来自 manager-ci）：
+          #   1) 跳过草稿；正式通道还跳过滚动发布标签（manager-ci / nightly / latest 等，其内容始终是最新 CI 产物）
           #   2) 只保留带 APK 资产的 Release（排除 debug / spoofed 包）
-          #   3) 只接受正式版（prerelease=false）：rc / beta 等预发布属于"最新"范畴
+          #   3) 正式通道只接受正式版（prerelease=false）：rc / beta 等预发布属于"最新"范畴
           #   4) ABI 偏好：BakaSU 取 arm64-v8a，其余优先 universal
           PICK=""
           if [ -n "$REL_JSON" ]; then
-            PICK=$(printf '%s' "$REL_JSON" | jq -r --arg pref "$PREF" '
+            PICK=$(printf '%s' "$REL_JSON" | jq -r --arg pref "$PREF" \
+              --argjson allow_rolling "$ALLOW_ROLLING" --argjson allow_pre "$ALLOW_PRE" '
               [ .[] | select(.draft == false) ]
               | map(. + { _ts: (.published_at // .created_at // "") })
               | sort_by(._ts) | reverse
@@ -209,8 +245,8 @@ jobs:
                     elif (.name | test("(?i)arm64")) then 2
                     else 3 end))
                 })
-              | map(select((._rolling | not) and ((._apks | length) > 0)))
-              | map(select(.prerelease | not))
+              | map(select((($allow_rolling == 1) or (._rolling | not)) and ((._apks | length) > 0)))
+              | map(select(($allow_pre == 1) or (.prerelease | not)))
               | .[0] as $p
               | if $p then
                   [ $p.tag_name, $p._apks[0].name, $p._apks[0].browser_download_url ] | @tsv
@@ -219,24 +255,40 @@ jobs:
           fi
 
           if [ -z "$PICK" ]; then
+            if [ "${{ inputs.ksu_variant }}" == "SukiSU-Nova" ]; then
+              echo "::error::$REPO 没有可用 Release（通道 $CHANNEL_KIND），无法获取 SukiSU-Nova 管理器"
+              exit 1
+            fi
             echo "::notice::$REPO 没有可用的正式版 Release（仅预发布或未附 APK），改用官方默认分支最新上传构建（内核仍锁定该提交）"
             exit 0
           fi
 
           IFS=$'\t' read -r REL_TAG REL_APK_NAME REL_APK_URL <<< "$PICK"
 
-          # 解析 Release 标签对应的提交（优先本地克隆，回退远端查询）
-          REL_COMMIT=$(git -C KernelSU rev-parse "${REL_TAG}^{commit}" 2>/dev/null || true)
-          if [ -z "$REL_COMMIT" ]; then
-            # annotated tag 需解引用，否则拿到的是标签对象而非提交
-            REL_COMMIT=$(git ls-remote "https://github.com/$REPO.git" "refs/tags/${REL_TAG}^{}" 2>/dev/null | awk '{print $1}')
-          fi
-          if [ -z "$REL_COMMIT" ]; then
-            REL_COMMIT=$(git ls-remote "https://github.com/$REPO.git" "refs/tags/${REL_TAG}" 2>/dev/null | awk '{print $1}')
-          fi
-          if [ -z "$REL_COMMIT" ]; then
-            echo "::warning title=正式通道回退::无法解析 Release $REL_TAG 对应的提交，改用官方默认分支最新上传构建"
-            exit 0
+          # SukiSU-Nova 最新通道：管理器来自滚动 Release（manager-ci），其标签通常
+          # 停留在旧提交上，而 APK 的 versionCode 是按 main 分支提交数计算的，
+          # 因此内核侧对齐当前 main HEAD，避免内核版本落后于管理器。
+          if [ "${{ inputs.ksu_variant }}" == "SukiSU-Nova" ] && [ "$CHANNEL_KIND" = "latest" ]; then
+            REL_COMMIT=$(git -C KernelSU rev-parse "origin/main^{commit}" 2>/dev/null || git -C KernelSU rev-parse "HEAD^{commit}" 2>/dev/null || true)
+            if [ -z "$REL_COMMIT" ]; then
+              echo "::error::无法解析 zako SukiSU 的 main HEAD，不能对齐内核版本"
+              exit 1
+            fi
+            echo "最新通道：SukiSU-Nova 内核对齐 main HEAD ${REL_COMMIT:0:8}，管理器 $REL_APK_NAME"
+          else
+            # 解析 Release 标签对应的提交（优先本地克隆，回退远端查询）
+            REL_COMMIT=$(git -C KernelSU rev-parse "${REL_TAG}^{commit}" 2>/dev/null || true)
+            if [ -z "$REL_COMMIT" ]; then
+              # annotated tag 需解引用，否则拿到的是标签对象而非提交
+              REL_COMMIT=$(git ls-remote "$REPO_URL" "refs/tags/${REL_TAG}^{}" 2>/dev/null | awk '{print $1}')
+            fi
+            if [ -z "$REL_COMMIT" ]; then
+              REL_COMMIT=$(git ls-remote "$REPO_URL" "refs/tags/${REL_TAG}" 2>/dev/null | awk '{print $1}')
+            fi
+            if [ -z "$REL_COMMIT" ]; then
+              echo "::warning title=正式通道回退::无法解析 Release $REL_TAG 对应的提交，改用官方默认分支最新上传构建"
+              exit 0
+            fi
           fi
 
           {
@@ -247,7 +299,11 @@ jobs:
             echo "REL_APK_URL=$REL_APK_URL"
           } >> "$GITHUB_ENV"
 
-          echo "正式通道：Release $REL_TAG (${REL_COMMIT:0:8})，管理器 $REL_APK_NAME"
+          if [ "$CHANNEL_KIND" = "release" ]; then
+            echo "正式通道：Release $REL_TAG (${REL_COMMIT:0:8})，管理器 $REL_APK_NAME"
+          else
+            echo "最新通道：Release $REL_TAG (${REL_COMMIT:0:8})，管理器 $REL_APK_NAME，内核对齐 main HEAD"
+          fi
 
       # Manager resolution lives in scripts/get-manager.sh so the reusable
       # workflow stays below GitHub's per-step expression length limit.

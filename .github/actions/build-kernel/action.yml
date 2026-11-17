@@ -1187,12 +1187,49 @@ runs:
           # builtin 分支：内置 SUSFS 支持
           KSU_INPUT="builtin"
         fi
-        curl --fail --location --proto '=https' -LSs "https://raw.githubusercontent.com/SukiSU-Nova/SukiSU-Nova/main/kernel/setup.sh" | bash -s "$KSU_INPUT"
+        curl --fail --location --proto '=https' -LSs "https://git.zako.shirkneko.top:20004/shirkneko/SukiSU/raw/main/kernel/setup.sh" | bash -s "$KSU_INPUT"
         git submodule update --init --recursive || true
 
-        # 内核侧（builtin 分支）KSU 版本来源：Makefile 以 REPO_BRANCH 指向分支的提交数
-        # 计算 KSU_VERSION = 30000 + 提交数 - 4001（优先 GitHub API，回退本地 rev-list）。
-        # 将 REPO_BRANCH 改写为官方最新上传 Manager 构建的提交，
+        # builtin 分支的 kernel/Makefile 仍是迁移前的模板（旧仓库名、GitHub API、
+        # -4001 偏移），改写为 zako 新仓库与 main/Kbuild 的新版公式
+        # （KSU_VERSION = 30000 + 提交数 + 996），否则内核版本对不上管理器。
+        KSU_MK="KernelSU/kernel/Makefile"
+        python3 - "$KSU_MK" <<'PY'
+        from pathlib import Path
+        import sys
+
+        path = Path(sys.argv[1])
+        api = "https://git.zako.shirkneko.top:20004/api/v1/repos/$(REPO_OWNER)/$(REPO_NAME)"
+        want = {
+            "REPO_OWNER  :=": "REPO_OWNER  := shirkneko\n",
+            "REPO_NAME   :=": "REPO_NAME   := SukiSU\n",
+            "VERSION_OFFSET  :=": "VERSION_OFFSET  := 996\n",
+            "GITHUB_API_BASE  :=": "GITHUB_API_BASE  := " + api + "\n",
+            "KSU_GITHUB_VER   :=": "KSU_GITHUB_VER   := $(shell $(CURL_BIN) -s \"$(GITHUB_API_BASE)/releases/latest\" 2>/dev/null | grep -o '\"tag_name\":\"[^\"]*\"' | head -1 | cut -d'\"' -f4 | sed 's/^v//')\n",
+            "GITHUB_COMMITS   :=": "GITHUB_COMMITS   := $(shell $(CURL_BIN) -s -D - -o /dev/null \"$(GITHUB_API_BASE)/commits?sha=$(REPO_BRANCH)&limit=1\" 2>/dev/null | tr -d '\\r' | sed -n 's/^[Xx]-[Tt]otal-[Cc]ount:[[:space:]]*\\([0-9]*\\).*/\\1/p')\n",
+            "KSU_VERSION     :=": "KSU_VERSION     := $(if $(LOCAL_COUNT),$(shell expr $(VERSION_BASE) + $(LOCAL_COUNT) + $(VERSION_OFFSET)),13000)\n",
+        }
+        lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+        out, seen = [], set()
+        for line in lines:
+            for prefix, repl in want.items():
+                if line.startswith(prefix):
+                    out.append(repl)
+                    seen.add(prefix)
+                    break
+            else:
+                out.append(line)
+        missing = sorted(set(want) - seen)
+        if missing:
+            raise SystemExit("SukiSU builtin kernel/Makefile 版本来源改写失败: " + ", ".join(missing))
+        path.write_text("".join(out), encoding="utf-8")
+        print("Patched SukiSU builtin kernel/Makefile (zako repo, +996 offset)")
+        PY
+        if grep -qE 'SukiSU-Nova|api\.github\.com' "$KSU_MK"; then
+          echo "::error::SukiSU builtin kernel/Makefile 仍引用旧仓库，版本来源改写失败"
+          exit 1
+        fi
+
         # 保证内核 KSU 版本与拉取的管理器安装包严格一致
         KSU_COMMIT="${{ inputs.ksu_commit }}"
         if [ -n "$KSU_COMMIT" ]; then
@@ -1211,7 +1248,7 @@ runs:
             echo "::error::未能在 KernelSU/kernel/Makefile 中对齐 REPO_BRANCH（上游 Makefile 结构可能已变化），无法对齐管理器版本"
             exit 1
           fi
-          echo "SukiSU-Nova 内核侧版本来源已对齐官方上传构建提交 $KSU_COMMIT (KSU 版本 $((30000 + $(git -C KernelSU rev-list --count "$KSU_COMMIT") - 4001)))"
+          echo "SukiSU-Nova 内核侧版本来源已对齐官方上传构建提交 $KSU_COMMIT (KSU 版本 $((30000 + $(git -C KernelSU rev-list --count "$KSU_COMMIT") + 996)))"
         fi
 
         # SukiSU-Nova 版本名默认带 @分支名 后缀，改写为品牌标识
@@ -1291,24 +1328,24 @@ runs:
 
         cd KernelSU/kernel
 
-        # SukiSU-Nova Kbuild 自动计算版本 (30000 + REPO_BRANCH 指向分支的提交数 - 4001)
+        # SukiSU-Nova Kbuild 自动计算版本 (30000 + REPO_BRANCH 指向分支的提交数 + 996)
         KSU_COMMIT_SHA=$(git rev-parse HEAD)
         echo "KSU_COMMIT_SHA=$KSU_COMMIT_SHA" >> $GITHUB_ENV
         echo "KSU_COMMIT_DATE=$(git log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M:%S %z' 2>/dev/null || echo unknown)" >> $GITHUB_ENV
 
         # 计算 KSUVER 用于 ZIP 命名（与 Kbuild 同源：已对齐时用官方构建提交的提交数，
-        # 否则回退 GitHub API main 分支提交数）
+        # 否则用 zako API 的 main 分支提交数，最后回退本地 rev-list）
         if [ -n "${KSU_COMMIT:-}" ]; then
           COMMITS=$(git rev-list --count "$KSU_COMMIT")
         else
-          COMMITS=$(curl -sI -H "Authorization: Bearer ${{ inputs.github_token }}" \
-            "https://api.github.com/repos/SukiSU-Nova/SukiSU-Nova/commits?sha=main&per_page=1" \
-            | grep -i '^link:' | sed -n 's/.*page=\([0-9]*\)>; rel="last".*/\1/p' || true)
+          COMMITS=$(curl -s -D - -o /dev/null \
+            "https://git.zako.shirkneko.top:20004/api/v1/repos/shirkneko/SukiSU/commits?sha=main&limit=1" \
+            | tr -d '\r' | sed -n 's/^[Xx]-[Tt]otal-[Cc]ount:[[:space:]]*\([0-9]*\).*/\1/p' || true)
           if [ -z "$COMMITS" ]; then
-            COMMITS=$(git rev-list --count HEAD 2>/dev/null || echo "0")
+            COMMITS=$(git rev-list --count main 2>/dev/null || echo "0")
           fi
         fi
-        KSU_VERSION=$(expr 30000 + ${COMMITS:-0} - 4001)
+        KSU_VERSION=$(expr 30000 + ${COMMITS:-0} + 996)
         
         
         cd ..

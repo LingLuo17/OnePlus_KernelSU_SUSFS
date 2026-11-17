@@ -230,63 +230,88 @@ jobs:
           ksu_type=$(echo "$ksu_options_normalized" | jq -r '.[0].type')
           ksu_ref=$(echo "$ksu_options_normalized" | jq -r '.[0].hash')
           
-          if [ "$ksu_type" == "SukiSU-Nova" ]; then
-            KSU_REPO_OWNER="SukiSU-Nova"
-            KSU_REPO_NAME="SukiSU-Nova"
-          elif [ "$ksu_type" == "BakaSU" ]; then
-            KSU_REPO_OWNER="Baka-SU"
-            KSU_REPO_NAME="BakaSU"
-          elif [ "$ksu_type" == "FinaSU" ]; then
-            KSU_REPO_OWNER="LyraVoid"
-            KSU_REPO_NAME="FinaSU"
-          else
-            echo "::error::Unsupported KernelSU variant: $ksu_type"
-            exit 1
-          fi
-          
+          # SukiSU 已迁至 zako（Forgejo），ref 用 git ls-remote 解析；
+          # BakaSU/FinaSU 仍在 GitHub，沿用 GraphQL 校验。
+          SUKISU_REPO_URL="https://git.zako.shirkneko.top:20004/shirkneko/SukiSU.git"
           HEAD_REF="refs/heads/${ksu_ref}"
           TAG_REF="refs/tags/${ksu_ref}"
-          
-          QUERY='query($owner: String!, $name: String!, $headRef: String!, $tagRef: String!, $objRef: String!) {
-            repository(owner: $owner, name: $name) {
-              hb: ref(qualifiedName: $headRef) { t: target { ... on Commit { o: oid } } }
-              ht: ref(qualifiedName: $tagRef) { t: target { ... on Commit { o: oid } } }
-              ho: object(expression: $objRef) { ... on Commit { o: oid } }
-            }
-          }'
-          
-          MAX_RETRIES=3
-          RETRY_COUNT=0
-          RETRY_DELAY=5 # Seconds to wait between retries
-          
-          echo "Resolving $ksu_type hash ($ksu_ref)..."
-          
-          until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
-            RESULT=$(gh api graphql -f query="$QUERY" -f owner="$KSU_REPO_OWNER" -f name="$KSU_REPO_NAME" -f headRef="$HEAD_REF" -f tagRef="$TAG_REF" -f objRef="$ksu_ref" 2>/dev/null)
-            EXIT_CODE=$?
-            
-            if [ $EXIT_CODE -eq 0 ] && [ ! -z "$RESULT" ]; then
-              echo "  ✅ API Success"
-              break
+
+          if [ "$ksu_type" == "SukiSU-Nova" ]; then
+            resolved_sha=""
+            if [[ "$ksu_ref" =~ ^[0-9a-f]{40}$ ]]; then
+              resolved_sha="$ksu_ref"
+            else
+              for ATTEMPT in 1 2 3; do
+                # 优先级：分支 > 解引用后的标签（附注标签）> 标签本身
+                REFS=$(git ls-remote "$SUKISU_REPO_URL" "$HEAD_REF" "${TAG_REF}^{}" "$TAG_REF" 2>/dev/null || true)
+                resolved_sha=$(printf '%s\n' "$REFS" | awk -v h="$HEAD_REF" -v p="${TAG_REF}^{}" -v t="$TAG_REF" '
+                  $2 == h && !hb { hb = $1 }
+                  $2 == p && !pt { pt = $1 }
+                  $2 == t && !tg { tg = $1 }
+                  END { print (hb ? hb : (pt ? pt : tg)) }')
+                [ -n "$resolved_sha" ] && break
+                echo "::warning::zako ref resolve failed (Attempt $ATTEMPT/3). Retrying in 5s..."
+                resolved_sha=""
+                sleep 5
+              done
             fi
-            
-            RETRY_COUNT=$((RETRY_COUNT + 1))
-            echo "::warning::API failed (Attempt $RETRY_COUNT/$MAX_RETRIES). Retrying in ${RETRY_DELAY}s..."
-            sleep $RETRY_DELAY
-          done
-          
-          if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-            echo "::error::GitHub API unreachable. Cannot validate $ksu_ref"
-            exit 1
+            if [ -z "$resolved_sha" ]; then
+              echo "::error::Ref/Hash '$ksu_ref' does not exist in shirkneko/SukiSU"
+              exit 1
+            fi
+          else
+            if [ "$ksu_type" == "BakaSU" ]; then
+              KSU_REPO_OWNER="Baka-SU"
+              KSU_REPO_NAME="BakaSU"
+            elif [ "$ksu_type" == "FinaSU" ]; then
+              KSU_REPO_OWNER="LyraVoid"
+              KSU_REPO_NAME="FinaSU"
+            else
+              echo "::error::Unsupported KernelSU variant: $ksu_type"
+              exit 1
+            fi
+
+            QUERY='query($owner: String!, $name: String!, $headRef: String!, $tagRef: String!, $objRef: String!) {
+              repository(owner: $owner, name: $name) {
+                hb: ref(qualifiedName: $headRef) { t: target { ... on Commit { o: oid } } }
+                ht: ref(qualifiedName: $tagRef) { t: target { ... on Commit { o: oid } } }
+                ho: object(expression: $objRef) { ... on Commit { o: oid } }
+              }
+            }'
+
+            MAX_RETRIES=3
+            RETRY_COUNT=0
+            RETRY_DELAY=5 # Seconds to wait between retries
+
+            echo "Resolving $ksu_type hash ($ksu_ref)..."
+
+            until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
+              RESULT=$(gh api graphql -f query="$QUERY" -f owner="$KSU_REPO_OWNER" -f name="$KSU_REPO_NAME" -f headRef="$HEAD_REF" -f tagRef="$TAG_REF" -f objRef="$ksu_ref" 2>/dev/null)
+              EXIT_CODE=$?
+
+              if [ $EXIT_CODE -eq 0 ] && [ ! -z "$RESULT" ]; then
+                echo "  ✅ API Success"
+                break
+              fi
+
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              echo "::warning::API failed (Attempt $RETRY_COUNT/$MAX_RETRIES). Retrying in ${RETRY_DELAY}s..."
+              sleep $RETRY_DELAY
+            done
+
+            if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+              echo "::error::GitHub API unreachable. Cannot validate $ksu_ref"
+              exit 1
+            fi
+
+            resolved_sha=$(echo "$RESULT" | jq -r '.data.repository | (.hb.t.o // .ht.t.o // .ho.o // "unknown")')
+
+            if [ "$resolved_sha" == "unknown" ]; then
+              echo "::error::Ref/Hash '$ksu_ref' does not exist in $KSU_REPO_OWNER/$KSU_REPO_NAME"
+              exit 1
+            fi
           fi
-          
-          resolved_sha=$(echo "$RESULT" | jq -r '.data.repository | (.hb.t.o // .ht.t.o // .ho.o // "unknown")')
-          
-          if [ "$resolved_sha" == "unknown" ]; then
-            echo "::error::Ref/Hash '$ksu_ref' does not exist in $KSU_REPO_OWNER/$KSU_REPO_NAME"
-            exit 1
-          fi
-          
+
           echo "  ✅ Resolved: $ksu_type/$ksu_ref → $resolved_sha"
           echo "ksu_resolved_hash=$resolved_sha" >> "$GITHUB_OUTPUT"
           
@@ -1096,7 +1121,7 @@ jobs:
           ksu_display=$(ksu_display_value "$ksu_ref" "$ksu_resolved_hash")
 
           case "$ksu_type" in
-            SukiSU-Nova) KSU_REPO_URL="https://github.com/SukiSU-Nova/SukiSU-Nova" ;;
+            SukiSU-Nova) KSU_REPO_URL="https://git.zako.shirkneko.top:20004/shirkneko/SukiSU" ;;
             FinaSU) KSU_REPO_URL="https://github.com/LyraVoid/FinaSU" ;;
             *)      KSU_REPO_URL="https://github.com/Baka-SU/BakaSU" ;;
           esac
@@ -1109,7 +1134,7 @@ jobs:
             ksu_display="${RK_KSU_COMMIT:0:7}"
             case "$ksu_type" in
               SukiSU-Nova)
-                KSU_REPO_URL="https://github.com/SukiSU-Nova/SukiSU-Nova/commit/$RK_KSU_COMMIT"
+                KSU_REPO_URL="https://git.zako.shirkneko.top:20004/shirkneko/SukiSU/commit/$RK_KSU_COMMIT"
                 ksu_ref="builtin @ ${RK_KSU_COMMIT:0:8}"
                 ;;
               FinaSU)

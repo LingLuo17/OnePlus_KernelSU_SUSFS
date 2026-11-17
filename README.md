@@ -7,7 +7,7 @@
 [![Release](https://img.shields.io/github/v/release/LingLuo17/OnePlus_KernelSU_SUSFS?label=Release&style=flat-square&logo=github&logoColor=white&color=2ea44f)](https://github.com/LingLuo17/OnePlus_KernelSU_SUSFS/releases)
 [![Coolapk](https://img.shields.io/badge/Follow-Coolapk-3DDC84?style=flat-square&logo=android&logoColor=white)](http://www.coolapk.com/u/38407386)
 [<img src="https://img.shields.io/badge/Join-QQ%20Group-blue?style=flat-square&logo=github&logoColor=white">](https://qm.qq.com/q/9Wr9DiJJ9C)
-[![SukiSU-Nova](https://img.shields.io/badge/SukiSU--Nova-Supported-5AA300?style=flat-square)](https://github.com/SukiSU-Nova/SukiSU-Nova)
+[![SukiSU-Nova](https://img.shields.io/badge/SukiSU--Nova-Supported-5AA300?style=flat-square)](https://git.zako.shirkneko.top:20004/shirkneko/SukiSU)
 [![BakaSU](https://img.shields.io/badge/BakaSU-Supported-5AA300?style=flat-square)](https://github.com/Baka-SU/BakaSU)
 [![FinaSU](https://img.shields.io/badge/FinaSU-Supported-5AA300?style=flat-square)](https://github.com/LyraVoid/FinaSU)
 [![SUSFS](https://img.shields.io/badge/SUSFS-Integrated-E67E22?style=flat-square)](https://gitlab.com/simonpunk/susfs4ksu)
@@ -92,7 +92,7 @@ A commit is a hash string representing the state of a repository at a certain po
 ## 🙏 Acknowledgments
 
 - [WildKernels/OnePlus_KernelSU_SUSFS](https://github.com/WildKernels/OnePlus_KernelSU_SUSFS) & [WildKernels/kernel_patches](https://github.com/WildKernels/kernel_patches)
-- [SukiSU-Nova](https://github.com/SukiSU-Nova/SukiSU-Nova) / [BakaSU](https://github.com/Baka-SU/BakaSU) / [FinaSU](https://github.com/LyraVoid/FinaSU) / [KernelSU](https://github.com/tiann/KernelSU)
+- [SukiSU-Nova](https://git.zako.shirkneko.top:20004/shirkneko/SukiSU) / [BakaSU](https://github.com/Baka-SU/BakaSU) / [FinaSU](https://github.com/LyraVoid/FinaSU) / [KernelSU](https://github.com/tiann/KernelSU)
 - [SUSFS](https://gitlab.com/simonpunk/susfs4ksu)
 - [AnyKernel3](https://github.com/osm0sis/AnyKernel3)
 - [Baseband Guard](https://github.com/vc-teahouse/Baseband-guard)
@@ -214,7 +214,7 @@ A commit is a hash string representing the state of a repository at a certain po
 ## 🙏 致谢
 
 - [WildKernels/OnePlus_KernelSU_SUSFS](https://github.com/WildKernels/OnePlus_KernelSU_SUSFS) & [WildKernels/kernel_patches](https://github.com/WildKernels/kernel_patches)
-- [SukiSU-Nova](https://github.com/SukiSU-Nova/SukiSU-Nova) / [BakaSU](https://github.com/Baka-SU/BakaSU) / [FinaSU](https://github.com/LyraVoid/FinaSU) / [KernelSU](https://github.com/tiann/KernelSU)
+- [SukiSU-Nova](https://git.zako.shirkneko.top:20004/shirkneko/SukiSU) / [BakaSU](https://github.com/Baka-SU/BakaSU) / [FinaSU](https://github.com/LyraVoid/FinaSU) / [KernelSU](https://github.com/tiann/KernelSU)
 - [SUSFS](https://gitlab.com/simonpunk/susfs4ksu)
 - [AnyKernel3](https://github.com/osm0sis/AnyKernel3)
 - [Baseband Guard](https://github.com/vc-teahouse/Baseband-guard)

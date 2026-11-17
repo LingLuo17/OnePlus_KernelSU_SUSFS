@@ -393,15 +393,15 @@ jobs:
           case "$ksu_variant" in
             SukiSU-Nova)
               ksu_hash="builtin"
-              KSU_REPO="SukiSU-Nova/SukiSU-Nova"
+              KSU_REPO_URL="https://git.zako.shirkneko.top:20004/shirkneko/SukiSU.git"
               ;;
             BakaSU)
               ksu_hash="main"
-              KSU_REPO="Baka-SU/BakaSU"
+              KSU_REPO_URL="https://github.com/Baka-SU/BakaSU.git"
               ;;
             FinaSU)
               ksu_hash="master"
-              KSU_REPO="LyraVoid/FinaSU"
+              KSU_REPO_URL="https://github.com/LyraVoid/FinaSU.git"
               ;;
             *)
               echo "::error::Unsupported KernelSU variant: $ksu_variant"
@@ -411,12 +411,12 @@ jobs:
 
           # 校验 ref 存在（40 位 commit 直接放行）
           if [[ ! "$ksu_hash" =~ ^[0-9a-f]{40}$ ]]; then
-            if ! git ls-remote "https://github.com/${KSU_REPO}.git" "refs/heads/$ksu_hash" "refs/tags/$ksu_hash" | grep -q .; then
-              echo "::error::Ref '$ksu_hash' does not exist in $KSU_REPO"
+            if ! git ls-remote "$KSU_REPO_URL" "refs/heads/$ksu_hash" "refs/tags/$ksu_hash" | grep -q .; then
+              echo "::error::Ref '$ksu_hash' does not exist in $KSU_REPO_URL"
               exit 1
             fi
           fi
-          echo "KSU: $ksu_variant @ $ksu_hash ($KSU_REPO)"
+          echo "KSU: $ksu_variant @ $ksu_hash ($KSU_REPO_URL)"
 
           matrix=$(jq -nc --argjson dev "$device" --arg type "$ksu_variant" --arg hash "$ksu_hash" \
             '[ $dev + {ksu_type: $type, ksu_hash: $hash, ksu_resolved_hash: $hash} ]')
