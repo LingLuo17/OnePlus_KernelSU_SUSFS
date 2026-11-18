@@ -1148,6 +1148,15 @@ jobs:
             esac
           fi
 
+          # KernelSU branch row matches the release format: release/<tag> on
+          # the Release channel, otherwise the branch that produced the manager.
+          CHANNEL_TAG="${{ needs.get-manager.outputs.channelTag }}"
+          if [ -n "$CHANNEL_TAG" ]; then
+            ksu_branch_row="release/$CHANNEL_TAG"
+          else
+            ksu_branch_row="$KSU_BRANCH"
+          fi
+
           # Build scope display: android12-5.10 -> Android 12 / 5.10
           build_scope=""
           for key in "${active_gki_keys[@]}"; do
@@ -1196,6 +1205,7 @@ jobs:
           | 项目 | 内容 |
           |:---|:---|
           | 发布类型 | ${{ inputs.release_type }} |
+          | 构建通道 | ${{ inputs.build_channel }} |
           | 发布时间 | $(date -u '+%Y-%m-%d %H:%M UTC') |
           | 构建范围 | $build_scope |
           | 构建设备 | ${#device_info[@]} 台 |
@@ -1205,11 +1215,10 @@ jobs:
           | 项目 | 内容 |
           |:---|:---|
           | KernelSU 变体 | $ksu_type |
-          | KernelSU 分支 | $ksu_ref |
           | KernelSU 版本 | $ksu_ver_global |
+          | KernelSU 分支 | $ksu_branch_row |
           | SUSFS | $SUSFS_BASE_VERSION |
           | Hook 类型 | SUSFS Inline Hooks |
-          | 挂载方式 | Magic Mount |
           | LTO | thin |
           | Re-Kernel 驱动 | ${{ inputs.use_rekernel && '开启' || '未开启' }} |
           | NoMount 挂载元模块 | ${{ inputs.use_nomount && '开启' || '未开启' }} |
