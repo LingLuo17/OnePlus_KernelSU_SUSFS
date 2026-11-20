@@ -1260,35 +1260,18 @@ runs:
         # ── Kernel-tree API compatibility for SukiSU-Nova (auto-detected, all kernel versions) ──
         # Newer BSP kernel trees (sm8845/sm8850/mt6789/mt6993, android16-6.12.38+) diverged
         # from what the builtin branch expects and fail to compile without these fixes:
-        # 1) struct netlink_kernel_cfg lost its `cb_mutex` member -> the dynamic member
-        #    table in kpm/super_access.c references a non-existent member (compile error).
-        # 2) security_add_hooks() takes a `const struct lsm_id *lsmid` instead of a
+        # 1) security_add_hooks() takes a `const struct lsm_id *lsmid` instead of a
         #    `const char *`; the struct lsm_id string field is named `name` or `lsm`
         #    depending on the tree, so the field is detected at build time.
-        # 3) KERNEL_SU_UAPI_VERSION on the builtin branch can lag the manager built
+        # 2) KERNEL_SU_UAPI_VERSION on the builtin branch can lag the manager built
         #    from main; the dynamic sync below closes the gap whenever it reopens.
         # （2026-10-24 清理：pkg_observer track_throne 标志 / selinux 跳板 /
         #   manager ioctl 三项一次性兼容已随 SukiSU-Nova builtin ce75122b
         #   （2026-10-21 同步官方 KernelSU）上游修复而移除：pkg_observer 回归
         #   track_throne(false)，selinux_hide 改为静态函数指针，动态管理器
-        #   ioctl 重构。KSU_KERNEL_DIR 兼容已恢复（见下方第 4 项）：builtin
+        #   ioctl 重构。KSU_KERNEL_DIR 兼容已恢复（见下方第 3 项）：builtin
         #   的 ifeq filter 只拦绝对路径，拦不住 6.12 OP 树相对的
         #   "../drivers/kernelsu"，上游并未真正修复。）
-        NETLINK_H="$COMMON_KERNEL_FOLDER/include/linux/netlink.h"
-        if [ -f "$NETLINK_H" ] && ! grep -q "cb_mutex" "$NETLINK_H"; then
-          # builtin 新布局把 kpm 从 kernel/kpm 挪到 kernel/extension/kpm；只认旧路径会让
-          # 这段兼容静默失效（6.12 全部在 super_access.c 编译失败）。两种路径都扫。
-          KPM_PATCHED=0
-          while IFS= read -r SU_SUPER; do
-            [ -n "$SU_SUPER" ] || continue
-            if grep -q "DEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)" "$SU_SUPER"; then
-              sed -i '/DEFINE_MEMBER(netlink_kernel_cfg, cb_mutex)/d' "$SU_SUPER"
-              echo "🔧 compat: dropped DEFINE_MEMBER(netlink_kernel_cfg, cb_mutex) in ${SU_SUPER#"$KSU_FOLDER"/} (member removed in this kernel tree)"
-              KPM_PATCHED=$((KPM_PATCHED + 1))
-            fi
-          done <<< "$(find "$KSU_FOLDER/kernel" -maxdepth 3 -type f -path '*/kpm/super_access.c' 2>/dev/null)"
-          echo "🔧 compat: netlink_kernel_cfg.cb_mutex fixups applied: $KPM_PATCHED"
-        fi
 
         LSM_HOOKS_H="$COMMON_KERNEL_FOLDER/include/linux/lsm_hooks.h"
         SU_LSM="$KSU_FOLDER/kernel/hook/lsm_hook.c"
@@ -1768,16 +1751,6 @@ runs:
         if grep -q 'VMA_PAD_START(' ./fs/proc/task_mmu.c && ! grep -qE '#include <linux/pgsize_migration(_inline)?\.h>|define VMA_PAD_START' ./fs/proc/task_mmu.c; then
           sed -i '\|#include "internal.h"|a\\n#undef VMA_PAD_START\n#ifndef VMA_PAD_START\n#define VMA_PAD_START(vma) ((vma)->vm_end)\n#endif' fs/proc/task_mmu.c
           echo "Added VMA_PAD_START fallback definition to fs/proc/task_mmu.c"
-        fi
-
-        # 把 SUSFS 的 SELinux 集成切换到新 selinux_hide 模型（BakaSU 同步
-        # tiann 上游新模型后已删除 fake_state 定义）：<6.6 的 &fake_state
-        # 调用切换为 backup_sepolicy + 8 参 security_context_to_sid_with_policy，
-        # >=6.6 的 6 参调用/声明归一化为 8 参（新模型签名）。脚本按 KernelSU
-        # 实际形态自动跳过旧模型检出；幂等。FinaSU 内置 SUSFS 集成自带新版
-        # selinux_hide（CONFIG_KSU_SUSFS 下导出 my_* 符号），跳过。
-        if [ "${{ inputs.ksu_type }}" != "FinaSU" ] && [ -f "$GITHUB_WORKSPACE/scripts/susfs_compat/apply_selinux_new_model.sh" ]; then
-          bash "$GITHUB_WORKSPACE/scripts/susfs_compat/apply_selinux_new_model.sh" "$KSU_FOLDER"
         fi
 
         # Revert Fake kernel patch

@@ -193,9 +193,8 @@ jobs:
           echo "🔍 Checking if $FILENAME exists in mirror..."
 
           # SUSFS 分支归档是移动目标（GitLab 分支头持续前进），过时缓存会让构建
-          # 拿到旧补丁（例如缺 should_check_current 侧信道修复）而被 susfs_compat
-          # 门控拦截。因此 susfs 不走本地/上游缓存快速路径，每次都从源站刷新；
-          # 单个归档仅数 MB，代价可忽略。
+          # 拿到旧补丁而缺少最新兼容性修复。因此 susfs 不走本地/上游缓存快速路径，
+          # 每次都从源站刷新；单个归档仅数 MB，代价可忽略。
           if [ "${{ matrix.type_label }}" != "susfs" ]; then
             STATUS=$(curl -IsL -o /dev/null -w "%{http_code}" "$BASE_URL/$FILENAME")
             PART_STATUS=$(curl -IsL -o /dev/null -w "%{http_code}" "$BASE_URL/${FILENAME}.partaa")
