@@ -1207,6 +1207,9 @@ runs:
             "GITHUB_API_BASE  :=": "GITHUB_API_BASE  := " + api + "\n",
             "KSU_GITHUB_VER   :=": "KSU_GITHUB_VER   := $(shell $(CURL_BIN) -s \"$(GITHUB_API_BASE)/releases/latest\" 2>/dev/null | grep -o '\"tag_name\":\"[^\"]*\"' | head -1 | cut -d'\"' -f4 | sed 's/^v//')\n",
             "GITHUB_COMMITS   :=": "GITHUB_COMMITS   := $(shell $(CURL_BIN) -s -D - -o /dev/null \"$(GITHUB_API_BASE)/commits?sha=$(REPO_BRANCH)&limit=1\" 2>/dev/null | tr -d '\\r' | sed -n 's/^[Xx]-[Tt]otal-[Cc]ount:[[:space:]]*\\([0-9]*\\).*/\\1/p')\n",
+            "RELEASE_API_BASE :=": "RELEASE_API_BASE := " + api + "\n",
+            "KSU_RELEASE_VER  :=": "KSU_RELEASE_VER  := $(shell $(CURL_BIN) -s \"$(RELEASE_API_BASE)/releases/latest\" 2>/dev/null | grep -o '\"tag_name\":\"[^\"]*\"' | head -1 | cut -d'\"' -f4 | sed 's/^v//')\n",
+            "RELEASE_COMMITS  :=": "RELEASE_COMMITS  := $(shell $(CURL_BIN) -s -D - -o /dev/null \"$(RELEASE_API_BASE)/commits?sha=$(REPO_BRANCH)&limit=1\" 2>/dev/null | tr -d '\\r' | sed -n 's/^[Xx]-[Tt]otal-[Cc]ount:[[:space:]]*\\([0-9]*\\).*/\\1/p')\n",
             "KSU_VERSION     :=": "KSU_VERSION     := $(if $(LOCAL_COUNT),$(shell expr $(VERSION_BASE) + $(LOCAL_COUNT) + $(VERSION_OFFSET)),13000)\n",
         }
         lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
@@ -1219,7 +1222,17 @@ runs:
                     break
             else:
                 out.append(line)
-        missing = sorted(set(want) - seen)
+        aliases = {
+            "GITHUB_API_BASE  :=": "RELEASE_API_BASE :=",
+            "KSU_GITHUB_VER   :=": "KSU_RELEASE_VER  :=",
+            "GITHUB_COMMITS   :=": "RELEASE_COMMITS  :=",
+        }
+        missing = sorted(
+            prefix for prefix in want
+            if prefix not in aliases.values()
+            and prefix not in seen
+            and aliases.get(prefix, prefix) not in seen
+        )
         if missing:
             raise SystemExit("SukiSU builtin kernel/Makefile 版本来源改写失败: " + ", ".join(missing))
         path.write_text("".join(out), encoding="utf-8")
