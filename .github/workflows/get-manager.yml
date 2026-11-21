@@ -143,32 +143,78 @@ jobs:
           } >> "$GITHUB_ENV"
 
           if [ "${{ inputs.ksu_variant }}" == "SukiSU-Nova" ]; then
-            # SukiSU-Nova 已迁至 zako（Forgejo）：管理器只从该仓库 Release 获取。
-            # 正式通道取最新正式版（prerelease=false），最新通道取滚动预发布 manager-ci。
-            API_BASE="https://git.zako.shirkneko.top:20004/api/v1/repos/shirkneko/SukiSU"
+            # SukiSU-Nova 管理器已迁至 CNB 结果仓库（cnb.cool/shirkneko/sukisu-result）。
+            # web JSON 接口使用专用 Accept 头，可匿名分页读取 Release。
+            # 正式通道取最新正式版（is_prerelease=false），最新通道取滚动 manager-ci。
+            CNB_WEB="https://cnb.cool/shirkneko/sukisu-result/-/releases"
             REPO_URL="https://git.zako.shirkneko.top:20004/shirkneko/SukiSU.git"
-            ALLOW_ROLLING=0
-            ALLOW_PRE=0
             if [ "$CHANNEL_KIND" = "latest" ]; then
-              ALLOW_ROLLING=1
-              ALLOW_PRE=1
-              echo "最新通道：SukiSU-Nova 取 zako 最新 Release（含 manager-ci 预发布）"
+              CNB_PICK_CI=1
+              echo "最新通道：SukiSU-Nova 取 CNB 滚动 Release（manager-ci）"
             else
-              echo "正式通道：SukiSU-Nova 取 zako 最新正式 Release（prerelease=false）"
+              CNB_PICK_CI=0
+              echo "正式通道：SukiSU-Nova 取 CNB 最新正式 Release（is_prerelease=false）"
             fi
-            REL_JSON=""
-            for ATTEMPT in 1 2 3; do
-              REL_JSON=$(curl -s --fail --max-time 30 "$API_BASE/releases?limit=50") \
-                && [ -n "$REL_JSON" ] && break
-              echo "获取 zako SukiSU Release 列表失败，重试 ($ATTEMPT/3)..."
-              REL_JSON=""
-              sleep 5
-            done
-            if [ -z "$REL_JSON" ]; then
-              echo "::error::无法获取 zako SukiSU Release 列表"
+            # 自动翻页，避免频繁 CI Release 将正式版或 manager-ci 挤出首页。
+            # here-doc 的 Python 顶层代码与 run 块保持同级，确保 YAML 解析后缩进合法。
+            CNB_PICK=$(python3 - "$CNB_PICK_CI" "$CNB_WEB" <<'PY'
+          import json, sys, time
+          from urllib.request import Request, urlopen
+
+          want_ci = sys.argv[1] == "1"
+          base_url = sys.argv[2]
+          chosen = None
+          page = 1
+          fetched = 0
+          while chosen is None:
+            url = f"{base_url}?page={page}&page_size=100"
+            for attempt in range(3):
+              try:
+                request = Request(url, headers={
+                  "Accept": "application/vnd.cnb.web+json",
+                  "User-Agent": "OnePlus-KernelSU-SUSFS-Manager-Check",
+                })
+                with urlopen(request, timeout=60) as response:
+                  payload = json.load(response)
+                break
+              except Exception as exc:
+                if attempt == 2:
+                  raise
+                print(f"获取 CNB Release 列表失败，重试 ({attempt + 1}/3): {exc}", file=sys.stderr)
+                time.sleep(5)
+            releases = payload.get("releases") or []
+            if not releases:
+              break
+            fetched += len(releases)
+            if want_ci:
+              chosen = next((r for r in releases
+                             if r.get("tag_ref", "").endswith("/manager-ci")
+                             and any(a.get("name", "").endswith(".apk") for a in r.get("assets", []))), None)
+            else:
+              chosen = next((r for r in releases
+                             if not r.get("is_prerelease") and not r.get("is_draft")
+                             and any(a.get("name", "").endswith(".apk") for a in r.get("assets", []))), None)
+            total = int(payload.get("release_count") or 0)
+            if (total and fetched >= total) or (not total and len(releases) < 100):
+              break
+            page += 1
+          if chosen is None:
+            sys.exit(1)
+          apks = [a for a in chosen.get("assets", []) if a.get("name", "").endswith(".apk")]
+          apks.sort(key=lambda a: (
+            0 if "arm64" in a.get("name", "") else
+            1 if "universal" in a.get("name", "") else 2))
+          apk = apks[0]
+          tag = chosen.get("tag_ref", "").removeprefix("refs/tags/")
+          print(tag, apk.get("name", ""), "https://cnb.cool" + apk.get("path", ""), sep="\t")
+          PY
+            ) || true
+            if [ -z "$CNB_PICK" ]; then
+              echo "::error::CNB Release 负载中没有可用的 SukiSU-Nova 管理器（通道 $CHANNEL_KIND）"
               exit 1
             fi
-            echo "Release 候选数: $(printf '%s' "$REL_JSON" | jq 'length')（zako）"
+            PICK="$CNB_PICK"
+            echo "Release 候选：$(printf '%s' "$PICK" | cut -f1)（CNB），管理器 $(printf '%s' "$PICK" | cut -f2)"
           else
             if [ "$CHANNEL_KIND" != "release" ]; then
               echo "最新通道：BakaSU 锁定默认分支 HEAD；FinaSU 取 build-manager.yml 最新构建"
@@ -220,13 +266,13 @@ jobs:
             echo "Release 候选数: $(printf '%s' "${REL_JSON:-[]}" | jq 'length')（latest=${LATEST_JSON:+yes} list=${LIST_JSON:+yes}）"
           fi
 
-          # 选择规则（SukiSU-Nova 最新通道允许滚动标签与预发布，管理器即来自 manager-ci）：
-          #   1) 跳过草稿；正式通道还跳过滚动发布标签（manager-ci / nightly / latest 等，其内容始终是最新 CI 产物）
+          # 选择规则（GitHub 变体：BakaSU / FinaSU 正式通道）：
+          #   1) 跳过草稿与滚动发布标签（manager-ci / nightly / latest 等）
           #   2) 只保留带 APK 资产的 Release（排除 debug / spoofed 包）
           #   3) 正式通道只接受正式版（prerelease=false）：rc / beta 等预发布属于"最新"范畴
           #   4) ABI 偏好：BakaSU 取 arm64-v8a，其余优先 universal
-          PICK=""
-          if [ -n "$REL_JSON" ]; then
+          # （SukiSU-Nova 已在上面从 CNB 解析出 PICK 三件套，跳过本段）
+          if [ "${{ inputs.ksu_variant }}" != "SukiSU-Nova" ] && [ -n "$REL_JSON" ]; then
             PICK=$(printf '%s' "$REL_JSON" | jq -r --arg pref "$PREF" \
               --argjson allow_rolling "$ALLOW_ROLLING" --argjson allow_pre "$ALLOW_PRE" '
               [ .[] | select(.draft == false) ]
@@ -256,7 +302,7 @@ jobs:
 
           if [ -z "$PICK" ]; then
             if [ "${{ inputs.ksu_variant }}" == "SukiSU-Nova" ]; then
-              echo "::error::$REPO 没有可用 Release（通道 $CHANNEL_KIND），无法获取 SukiSU-Nova 管理器"
+              echo "::error::SukiSU-Nova 没有可用 Release（通道 $CHANNEL_KIND）"
               exit 1
             fi
             echo "::notice::$REPO 没有可用的正式版 Release（仅预发布或未附 APK），改用官方默认分支最新上传构建（内核仍锁定该提交）"
@@ -265,7 +311,7 @@ jobs:
 
           IFS=$'\t' read -r REL_TAG REL_APK_NAME REL_APK_URL <<< "$PICK"
 
-          # SukiSU-Nova 最新通道：管理器来自滚动 Release（manager-ci），其标签通常
+          # SukiSU-Nova 最新通道：管理器来自滚动 Release（manager-ci），其标签
           # 停留在旧提交上，而 APK 的 versionCode 是按 main 分支提交数计算的，
           # 因此内核侧对齐当前 main HEAD，避免内核版本落后于管理器。
           if [ "${{ inputs.ksu_variant }}" == "SukiSU-Nova" ] && [ "$CHANNEL_KIND" = "latest" ]; then
