@@ -16,6 +16,41 @@ on:
         required: false
         type: boolean
         default: false
+      use_rekernel:
+        description: "构建总结展示：是否启用 Re-Kernel 驱动"
+        required: false
+        type: boolean
+        default: false
+      enable_droidspaces_ntsync:
+        description: "构建总结展示：是否启用 Droidspaces 容器与 NTSync"
+        required: false
+        type: boolean
+        default: false
+      optimize_level:
+        description: "构建总结展示：编译器优化级别"
+        required: false
+        type: string
+        default: "O2"
+      mlgo:
+        description: "构建总结展示：是否启用 MLGO"
+        required: false
+        type: boolean
+        default: true
+      mirror_toolchains:
+        description: "构建总结展示：是否同步工具链缓存"
+        required: false
+        type: boolean
+        default: true
+      custom_version:
+        description: "构建总结展示：自定义内核版本名"
+        required: false
+        type: string
+        default: ""
+      build_timestamp:
+        description: "构建总结展示：自定义构建时间"
+        required: false
+        type: string
+        default: ""
     outputs:
       ksuVer:
         description: "The calculated KSU version number"
@@ -458,21 +493,55 @@ jobs:
         if: steps.add_KSU.outcome == 'failure'
         run: echo "下载CI构建的KSU失败!"
 
-      - name: 构建通道摘要
+      - name: 构建总结
         if: always()
         run: |
+          VARIANT="${{ inputs.ksu_variant }}"
+          MANAGER_VER="${{ steps.add_KSU.outputs.managerVer }}"
+          [ -n "$MANAGER_VER" ] || MANAGER_VER="未获取"
+
+          # SukiSU-Nova 跳过「选择管理器来源」步骤，CHANNEL_KIND 可能从未写入 env；
+          # 与 add_KSU 的兜底一致，直接按输入判断通道
+          CHANNEL_KIND="${CHANNEL_KIND:-}"
+          if [ -z "$CHANNEL_KIND" ]; then
+            case "${{ inputs.build_channel }}" in
+              最新*|latest*|HEAD*) CHANNEL_KIND="latest" ;;
+              *)                   CHANNEL_KIND="release" ;;
+            esac
+          fi
+
+          case "$CHANNEL_KIND" in
+            latest) CH_LABEL="最新通道（HEAD）" ;;
+            *)      CH_LABEL="正式通道（Release）" ;;
+          esac
+
+          flag() { [ "$1" = "true" ] && echo "✅ 启用" || echo "➖ 关闭"; }
+
+          VER_ROW="${{ inputs.custom_version }}"
+          [ -n "$VER_ROW" ] || VER_ROW="默认"
+          TIME_ROW="${{ inputs.build_timestamp }}"
+          [ -n "$TIME_ROW" ] || TIME_ROW="自动（当前北京时间）"
+
           {
-            echo "### 构建通道"
+            echo "## 📊 构建总结"
             echo ""
-            echo "- 选择通道：${{ inputs.build_channel }}"
-            echo "- 实际通道：${CHANNEL_KIND:-未知}（pin_mode=${PIN_MODE:-未知}）"
-            echo "- 管理器来源：${MANAGER_SOURCE:-ci}"
-            if [ "${MANAGER_SOURCE:-ci}" = "release" ]; then
-              echo "- Release 标签：${REL_TAG:-未知}"
-              echo "- 内核对齐提交：${REL_COMMIT:0:8}"
-            fi
-            echo "- 内核锁定提交：${{ steps.add_KSU.outputs.ksuCommit }}"
-            echo "- 管理器版本：${{ steps.add_KSU.outputs.managerVer }}"
+            echo "**$VARIANT** · 管理器 \`$MANAGER_VER\` · $CH_LABEL"
+            echo ""
+            echo "### ⚙️ 构建选项"
+            echo ""
+            echo "| 功能 | 选择 |"
+            echo "|:---|:---|"
+            echo "| SUSFS | ✅ 启用 |"
+            echo "| Droidspaces 容器 & NTSync | $(flag "${{ inputs.enable_droidspaces_ntsync }}") |"
+            echo "| BBG 基带保护 | ✅ 启用 |"
+            echo "| 网络增强 | ✅ 启用 |"
+            echo "| Re-Kernel 驱动 | $(flag "${{ inputs.use_rekernel }}") |"
+            echo "| NoMount 元模块 | $(flag "${{ inputs.use_nomount }}") |"
+            echo "| 优化级别 | \`${{ inputs.optimize_level }}\` |"
+            echo "| MLGO | $(flag "${{ inputs.mlgo }}") |"
+            echo "| 工具链同步 | $(flag "${{ inputs.mirror_toolchains }}") |"
+            echo "| 自定义内核版本名 | ${VER_ROW} |"
+            echo "| 自定义构建时间 | ${TIME_ROW} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: 上传APK

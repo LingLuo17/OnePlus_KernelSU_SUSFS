@@ -427,28 +427,6 @@ jobs:
           echo "model_display=$model_display" >> "$GITHUB_OUTPUT"
           echo "::endgroup::"
 
-      - name: 📊 Build plan summary
-        run: |
-          {
-            echo "## 🎯 Custom Kernel Build Plan"
-            echo ""
-            echo "| Setting | Value |"
-            echo "|---------|-------|"
-            echo "| Device | \`${{ steps.set-matrix.outputs.model_display }}\` |"
-            echo "| KernelSU | \`${{ inputs.ksu_variant }}\` @ \`${{ inputs.ksu_variant == 'SukiSU-Nova' && 'builtin' || (inputs.ksu_variant == 'FinaSU' && 'master' || 'main') }}\` |"
-            if [ "${{ inputs.ksu_variant }}" = "FinaSU" ]; then
-              echo "| FinaSU Hook | \`SUSFS Inline\` |"
-            fi
-            echo "| Re-Kernel | ${{ inputs.use_rekernel && '✅ enabled' || '❌ disabled' }} |"
-            echo "| NoMount | ${{ inputs.use_nomount && '✅ enabled' || '❌ disabled' }} |"
-            echo "| Optimization | \`${{ inputs.optimize_level }}\` |"
-            echo "| MLGO | ${{ inputs.mlgo && '✅ enabled' || '❌ disabled' }} |"
-            echo "| Droidspaces & NTSync | ${{ inputs.enable_droidspaces_ntsync && '✅ enabled' || '❌ disabled' }} |"
-            echo "| Toolchain sync | ${{ inputs.mirror_toolchains && '✅ enabled' || '❌ disabled' }} |"
-            echo "| Custom version | \`${{ inputs.custom_version || 'auto (-<android> KMI tag)' }}\` |"
-            echo "| Build timestamp | \`${{ inputs.build_timestamp || 'auto (current build time)' }}\` |"
-          } >> "$GITHUB_STEP_SUMMARY"
-
   prepare_ccache:
     name: Prepare ccache binary (download once)
     runs-on: ubuntu-24.04
@@ -708,3 +686,10 @@ jobs:
       ksu_variant: ${{ inputs.ksu_variant }}
       build_channel: ${{ inputs.build_channel }}
       use_nomount: ${{ inputs.use_nomount || false }}
+      use_rekernel: ${{ inputs.use_rekernel || false }}
+      enable_droidspaces_ntsync: ${{ inputs.enable_droidspaces_ntsync || false }}
+      optimize_level: ${{ inputs.optimize_level }}
+      mlgo: ${{ inputs.mlgo || false }}
+      mirror_toolchains: ${{ inputs.mirror_toolchains || false }}
+      custom_version: ${{ inputs.custom_version }}
+      build_timestamp: ${{ inputs.build_timestamp }}

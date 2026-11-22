@@ -980,6 +980,12 @@ jobs:
       ksu_variant: ${{ inputs.ksu_variant }}
       build_channel: ${{ inputs.build_channel }}
       use_nomount: ${{ inputs.use_nomount || false }}
+      use_rekernel: ${{ inputs.use_rekernel || false }}
+      enable_droidspaces_ntsync: ${{ inputs.enable_droidspaces_ntsync || false }}
+      optimize_level: ${{ inputs.optimize_level }}
+      mlgo: ${{ inputs.mlgo || false }}
+      mirror_toolchains: ${{ inputs.mirror_toolchains || false }}
+      build_timestamp: ${{ inputs.build_timestamp }}
 
   trigger-release:
     needs: [set-op-model, build, get-manager]
