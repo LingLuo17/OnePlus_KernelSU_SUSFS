@@ -1899,7 +1899,15 @@ runs:
         case "$OP_BRANCH" in
           wild/sm8850|wild/sm8845)
             echo "Applying BBG efisp abl whitelist patch"
-            patch -p1 < "$KERNEL_PATCHES_FOLDER/common/bbg/0001-Enable-abl-and-efisp-flashing-for-efisp-exploit-devices.patch"
+            BBG_HELPER="Baseband-guard/blkdev_helper.c"
+            BBG_INCLUDE='#include <linux/kstrtox.h>'
+            grep -qF "$BBG_INCLUDE" "$BBG_HELPER" || \
+              sed -i "/^#include \"blkdev_helper.h\"$/a $BBG_INCLUDE" "$BBG_HELPER"
+            # setup.sh now adds blk.h here, so the old include hunk fails
+            # even though kstrtox.h is still needed for kstrtobool().
+            perl -0pe 's/^@@ [^\n]*\n(?:(?!^@@ ).)*?kstrtox\.h[^\n]*\n(?:(?!^@@ ).)*?(?=^@@ |^diff --git|\z)//ms' \
+              "$KERNEL_PATCHES_FOLDER/common/bbg/0001-Enable-abl-and-efisp-flashing-for-efisp-exploit-devices.patch" \
+              | patch -p1
           ;;
         esac
         
