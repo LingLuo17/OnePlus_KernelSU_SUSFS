@@ -1753,7 +1753,45 @@ runs:
         bash "$GITHUB_WORKSPACE/scripts/susfs_compat/apply_kernel_susfs_patch.sh" \
           "$COMMON_KERNEL_FOLDER" \
           "$SUSFS_FOLDER/kernel_patches/50_add_susfs_in_${{ env.SUSFS_KERNEL_BRANCH }}.patch"
-        
+
+        # SUSFS 的隐藏 SELinux access 路径使用自己的 susfs_security_compute_av_user
+        # （见 handle_sel_write_access -> susfs_sel_write_access），其中 avd_init()
+        # 会把 avd->seqno 设为 policy->latest_granting，向 /selinux/access 暴露
+        # 真实策略代数，构成 SEL 检测点。在 avd_init() 之后固定 seqno=1（原生
+        # Android 只加载一次策略，读数恒为 1），保持访问查询的序号稳定。
+        # 只改 SUSFS 的隐藏查询响应，不动内核本身的 avd_init()/真实策略计算。
+        for AV_FILE in security/selinux/ss/services.c security/selinux/hooks.c; do
+          [ -f "$AV_FILE" ] || continue
+          if grep -q 'void susfs_security_compute_av_user' "$AV_FILE"; then
+            python3 - "$AV_FILE" <<'PYEOF'
+        import re
+        import sys
+
+        path = sys.argv[1]
+        with open(path, encoding="utf-8", errors="surrogateescape") as f:
+            text = f.read()
+
+        match = re.search(r"void susfs_security_compute_av_user\(", text)
+        if not match:
+            raise SystemExit("SUSFS AV helper not found")
+        end = text.find("\n}\n", match.start())
+        if end < 0:
+            raise SystemExit("SUSFS AV helper is incomplete")
+        body = text[match.start():end]
+        if "avd->seqno = 1;" in body:
+            raise SystemExit(0)
+        needle = "\tavd_init(policy, avd);"
+        if body.count(needle) != 1:
+            raise SystemExit("unexpected SUSFS AV initialization")
+        body = body.replace(needle, needle + "\n\tavd->seqno = 1;", 1)
+        text = text[:match.start()] + body + text[end:]
+        with open(path, "w", encoding="utf-8", errors="surrogateescape") as f:
+            f.write(text)
+        PYEOF
+            echo "$AV_FILE: SUSFS access results now report SELinux sequence 1"
+          fi
+        done
+
         # SUSFS's OPEN_REDIRECT code unconditionally calls VMA_PAD_START(), which
         # only exists on GKI branches that carry Google's page-size-migration
         # feature (added to each android version's kernel/common branch at a
