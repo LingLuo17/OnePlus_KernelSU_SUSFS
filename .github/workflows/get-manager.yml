@@ -178,10 +178,11 @@ jobs:
           } >> "$GITHUB_ENV"
 
           if [ "${{ inputs.ksu_variant }}" == "SukiSU-Nova" ]; then
-            # SukiSU-Nova 管理器已迁至 CNB 结果仓库（cnb.cool/shirkneko/sukisu-result）。
+            # SukiSU-Nova 管理器已从旧 CNB 结果仓库迁至发布仓库。
             # web JSON 接口使用专用 Accept 头，可匿名分页读取 Release。
-            # 正式通道取最新正式版（is_prerelease=false），最新通道取滚动 manager-ci。
-            CNB_WEB="https://cnb.cool/shirkneko/sukisu-result/-/releases"
+            # 正式通道取最新正式版，缺失时回退到 manager-ci 测试版；
+            # 最新通道直接取滚动 manager-ci。
+            CNB_WEB="https://cnb.cool/shirkneko/sukisu-release/-/releases"
             REPO_URL="https://git.zako.shirkneko.top:20004/shirkneko/SukiSU.git"
             if [ "$CHANNEL_KIND" = "latest" ]; then
               CNB_PICK_CI=1
@@ -199,6 +200,8 @@ jobs:
           want_ci = sys.argv[1] == "1"
           base_url = sys.argv[2]
           chosen = None
+          fallback = None
+          fallback_used = 0
           page = 1
           fetched = 0
           while chosen is None:
@@ -226,6 +229,10 @@ jobs:
                              if r.get("tag_ref", "").endswith("/manager-ci")
                              and any(a.get("name", "").endswith(".apk") for a in r.get("assets", []))), None)
             else:
+              if fallback is None:
+                fallback = next((r for r in releases
+                                 if r.get("tag_ref", "").endswith("/manager-ci")
+                                 and any(a.get("name", "").endswith(".apk") for a in r.get("assets", []))), None)
               chosen = next((r for r in releases
                              if not r.get("is_prerelease") and not r.get("is_draft")
                              and any(a.get("name", "").endswith(".apk") for a in r.get("assets", []))), None)
@@ -233,6 +240,9 @@ jobs:
             if (total and fetched >= total) or (not total and len(releases) < 100):
               break
             page += 1
+          if chosen is None and fallback is not None:
+            chosen = fallback
+            fallback_used = 1
           if chosen is None:
             sys.exit(1)
           apks = [a for a in chosen.get("assets", []) if a.get("name", "").endswith(".apk")]
@@ -241,7 +251,7 @@ jobs:
             1 if "universal" in a.get("name", "") else 2))
           apk = apks[0]
           tag = chosen.get("tag_ref", "").removeprefix("refs/tags/")
-          print(tag, apk.get("name", ""), "https://cnb.cool" + apk.get("path", ""), sep="\t")
+          print(tag, apk.get("name", ""), "https://cnb.cool" + apk.get("path", ""), fallback_used, sep="\t")
           PY
             ) || true
             if [ -z "$CNB_PICK" ]; then
@@ -344,18 +354,21 @@ jobs:
             exit 0
           fi
 
-          IFS=$'\t' read -r REL_TAG REL_APK_NAME REL_APK_URL <<< "$PICK"
+          IFS=$'\t' read -r REL_TAG REL_APK_NAME REL_APK_URL REL_FALLBACK <<< "$PICK"
+          if [ "$REL_FALLBACK" = "1" ]; then
+            echo "::warning::未获取到正式版，已回退到 manager-ci 测试版"
+          fi
 
-          # SukiSU-Nova 最新通道：管理器来自滚动 Release（manager-ci），其标签
-          # 停留在旧提交上，而 APK 的 versionCode 是按 main 分支提交数计算的，
-          # 因此内核侧对齐当前 main HEAD，避免内核版本落后于管理器。
-          if [ "${{ inputs.ksu_variant }}" == "SukiSU-Nova" ] && [ "$CHANNEL_KIND" = "latest" ]; then
+          # SukiSU-Nova 使用 manager-ci 时，其标签可能停留在旧提交上，而
+          # APK versionCode 按 main 分支提交数计算。因此无论是最新通道，
+          # 还是正式通道回退到测试版，都对齐当前 main HEAD。
+          if [ "${{ inputs.ksu_variant }}" == "SukiSU-Nova" ] && { [ "$CHANNEL_KIND" = "latest" ] || [ "$REL_TAG" = "manager-ci" ]; }; then
             REL_COMMIT=$(git -C KernelSU rev-parse "origin/main^{commit}" 2>/dev/null || git -C KernelSU rev-parse "HEAD^{commit}" 2>/dev/null || true)
             if [ -z "$REL_COMMIT" ]; then
               echo "::error::无法解析 zako SukiSU 的 main HEAD，不能对齐内核版本"
               exit 1
             fi
-            echo "最新通道：SukiSU-Nova 内核对齐 main HEAD ${REL_COMMIT:0:8}，管理器 $REL_APK_NAME"
+            echo "SukiSU-Nova 内核对齐 main HEAD ${REL_COMMIT:0:8}，管理器 $REL_APK_NAME"
           else
             # 解析 Release 标签对应的提交（优先本地克隆，回退远端查询）
             REL_COMMIT=$(git -C KernelSU rev-parse "${REL_TAG}^{commit}" 2>/dev/null || true)

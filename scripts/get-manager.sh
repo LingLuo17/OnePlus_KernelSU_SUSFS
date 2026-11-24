@@ -83,10 +83,10 @@ if [ "${MANAGER_SOURCE:-ci}" = "release" ] && [ -n "${REL_APK_URL:-}" ]; then
   rm -rf manager-artifacts && mkdir -p manager-artifacts
 fi
 
-# SukiSU-Nova 已迁至 zako（Forgejo），管理器只能来自该仓库的 Release；
+# SukiSU-Nova 管理器只能来自 CNB 发布仓库的 Release；
 # 上面的正式/最新通道选择失败时直接报错，不再回退 GitHub Actions artifact。
 if [ "$VARIANT" == "SukiSU-Nova" ]; then
-  echo "::error::未能从 zako Release 获取 SukiSU-Nova 管理器"
+  echo "::error::未能从 CNB Release 获取 SukiSU-Nova 管理器"
   exit 1
 fi
 
