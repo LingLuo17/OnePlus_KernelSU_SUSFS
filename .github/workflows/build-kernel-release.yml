@@ -1064,6 +1064,7 @@ jobs:
           
           # matrix.json holds this build's devices (pre-override config);
           # ds/ntsync are global overrides, apply them here to match reality.
+          # sdp900ma comes from each device config (enabled by default).
           # 开机必需项不受影响，详见 action 里 Add Droidspaces support 的分层说明。
           dn=false
           [ "${{ inputs.enable_droidspaces_ntsync }}" = "true" ] && dn=true
@@ -1184,6 +1185,7 @@ jobs:
           jq -e 'all(.[]; (.unicode  // false) == true)' <<< "$JSON_BUILD_DATA" >/dev/null 2>&1 && CF+=("🔧 Unicode Fix")
           jq -e 'all(.[]; (.ds       // false) == true)' <<< "$JSON_BUILD_DATA" >/dev/null 2>&1 && CF+=("💻 Droidspaces")
           jq -e 'all(.[]; (.ntsync   // false) == true)' <<< "$JSON_BUILD_DATA" >/dev/null 2>&1 && CF+=("🔃 NTSync")
+          jq -e 'all(.[]; (.sdp900ma // false) == true)' <<< "$JSON_BUILD_DATA" >/dev/null 2>&1 && CF+=("🔌 Faster SDP Charging")
           if [ ${#CF[@]} -gt 0 ]; then
             COMMON_FEATURES=""
             count=0

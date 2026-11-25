@@ -50,6 +50,7 @@ This repository builds **OnePlus (Oppo/Realme) device kernels** with GitHub Acti
 | ⚡ TMPFS XATTR / POSIX ACL | Extended TMPFS support for meta modules and Mountify |
 | </> Unicode Bypass Fix | Prevent path traversal and other detections using non-printable Unicode codepoints |
 | 🐳 Droidspaces & NTSync | Optional container support with NTSync kernel compatibility |
+| ⚡ SDP 900 mA | 900 mA charging on SDP USB data ports instead of 500 mA (host data port must support 900 mA, e.g. USB 3.0) |
 
 ## 🚀 Usage
 
@@ -172,6 +173,7 @@ A commit is a hash string representing the state of a repository at a certain po
 | ⚡ TMPFS XATTR / POSIX ACL | 扩展 TMPFS 支持，用于元模块与 Mountify |
 | </> Unicode 绕过修复 | 防止使用不可打印的 Unicode 码点进行路径穿越及其他检测 |
 | 🐳 Droidspaces & NTSync | 可选容器支持及 NTSync 内核兼容补丁 |
+| ⚡ SDP 900 mA | SDP USB 数据口 900 mA 充电，替代 500 mA（主机数据口需支持 900 mA，如 USB 3.0） |
 
 ## 🚀 使用方法
 
