@@ -1074,9 +1074,11 @@ jobs:
             if [ -f "$file" ]; then
               zipname=$(basename "$file" .zip)
               # <ksu_type>-<ksu_ver>-<model>-<os>-AnyKernel3 (model may contain hyphens)
+              # ksu_type itself may contain hyphens (SukiSU-Nova), so strip the
+              # known variant prefix instead of splitting at the first hyphen.
               base="${zipname%-AnyKernel3}"
-              ksu_type="${base%%-*}"
-              rest="${base#*-}"
+              ksu_type="${{ fromJSON(needs.set-op-model.outputs.ksu_options_normalized)[0].type }}"
+              rest="${base#"$ksu_type"-}"
               ksu_ver="${rest%%-*}"
               model_os="${rest#*-}"
               os_version="${model_os##*-}"
